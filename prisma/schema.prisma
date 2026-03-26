@@ -1,0 +1,116 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Polo {
+  id               String                 @id @default(cuid())
+  code             Int                    @unique
+  name             String
+  uf               String                 @db.VarChar(2)
+  city             String
+  neighborhood     String?
+  street           String?
+  agent            String?
+  manager          String?
+  phone            String?
+  email            String?
+  latitude         Float?
+  longitude        Float?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  hostedEncounters Encounter[]            @relation("EncounterHost")
+  encounterLinks   EncounterParticipant[]
+  tripStops        TripStop[]
+
+  @@index([uf, city])
+}
+
+model Encounter {
+  id               String                 @id @default(cuid())
+  uf               String                 @db.VarChar(2)
+  hostPoloId       String
+  hostParticipants Int                    @default(0)
+  scheduledAt      DateTime?
+  notes            String?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  hostPolo         Polo                   @relation("EncounterHost", fields: [hostPoloId], references: [id])
+  participants     EncounterParticipant[]
+
+  @@index([uf, createdAt])
+}
+
+model EncounterParticipant {
+  id           String    @id @default(cuid())
+  encounterId  String
+  poloId       String
+  participants Int       @default(0)
+  order        Int       @default(0)
+  createdAt    DateTime  @default(now())
+  encounter    Encounter @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+  polo         Polo      @relation(fields: [poloId], references: [id])
+
+  @@unique([encounterId, poloId])
+  @@index([encounterId, order])
+}
+
+model Trip {
+  id                 String    @id @default(cuid())
+  title              String
+  traveler           String?
+  flightOutboundFrom String?
+  flightOutboundTo   String?
+  flightOutboundDate DateTime?
+  flightOutboundTime String?
+  flightReturnFrom   String?
+  flightReturnTo     String?
+  flightReturnDate   DateTime?
+  flightReturnTime   String?
+  vehicle            String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  days               TripDay[]
+}
+
+model TripDay {
+  id            String     @id @default(cuid())
+  tripId        String
+  dayIndex      Int
+  date          DateTime?
+  overnightCity String?
+  hotel         String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  trip          Trip       @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  stops         TripStop[]
+
+  @@unique([tripId, dayIndex])
+  @@index([tripId, dayIndex])
+}
+
+model TripStop {
+  id            String    @id @default(cuid())
+  tripDayId     String
+  poloId        String
+  stopIndex     Int
+  arrivalTime   String?
+  departureTime String?
+  objective     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  tripDay       TripDay   @relation(fields: [tripDayId], references: [id], onDelete: Cascade)
+  polo          Polo      @relation(fields: [poloId], references: [id])
+
+  @@unique([tripDayId, stopIndex])
+  @@index([tripDayId, stopIndex])
+}
