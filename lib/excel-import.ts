@@ -1,18 +1,62 @@
 import * as XLSX from "xlsx";
 import type { ParsedPoloImport } from "@/lib/polo-import";
 
-/** Map de variações de cabeçalho → campo interno */
+/**
+ * Map de variações de cabeçalho → campo interno.
+ * As chaves já estão no formato normalizado (sem acentos, sem pontuação, minúsculas).
+ * A planilha "Carteira de Polos" da UNINTER usa cabeçalhos como:
+ *   CÓD. LOCAL, NOME DO CA, UF, RUA, BAIRRO, CIDADE, TELEFONE, CELULAR,
+ *   EMAIL, AGENTE NOME, GESTOR, etc.
+ */
 const HEADER_MAP: Record<string, keyof RawRow> = {
-  cod: "cod", código: "cod", codigo: "cod", code: "cod", "cód": "cod",
-  nome: "nome", pap: "nome", name: "nome",
-  uf: "uf", estado: "uf",
-  cidade: "cidade", municipio: "cidade", município: "cidade", city: "cidade",
-  bairro: "bairro", neighborhood: "bairro",
-  rua: "rua", endereço: "rua", endereco: "rua", logradouro: "rua", street: "rua",
-  agente: "agente", agent: "agente",
-  gestor: "gestor", manager: "gestor", coordenador: "gestor",
-  tel: "tel", telefone: "tel", fone: "tel", phone: "tel", celular: "tel",
-  email: "email", "e-mail": "email",
+  // Código
+  "cod": "cod", "codigo": "cod", "code": "cod",
+  "cod local": "cod", "codigo local": "cod",
+  "cdlocal": "cod", "cd local": "cod",
+  "num": "cod", "numero": "cod", "número": "cod",
+
+  // Nome do polo
+  "nome": "nome", "pap": "nome", "name": "nome",
+  "nome do ca": "nome", "nome ca": "nome",
+  "nome polo": "nome", "nomepolo": "nome",
+  "denominacao": "nome", "denominação": "nome",
+  "descricao": "nome", "descrição": "nome",
+
+  // UF
+  "uf": "uf", "estado": "uf", "state": "uf",
+  "uf 1": "uf", "uf1": "uf",
+
+  // Cidade
+  "cidade": "cidade", "municipio": "cidade",
+  "city": "cidade",
+
+  // Bairro
+  "bairro": "bairro", "neighborhood": "bairro", "distrito": "bairro",
+
+  // Rua / Endereço
+  "rua": "rua", "endereco": "rua", "logradouro": "rua", "street": "rua",
+  "rua correspondencia": "rua", "endereco correspondencia": "rua",
+  "logradouro correspondencia": "rua",
+
+  // Agente
+  "agente": "agente", "agent": "agente",
+  "agente nome": "agente", "nome agente": "agente",
+  "agente responsavel": "agente", "responsavel": "agente",
+
+  // Gestor / Coordenador
+  "gestor": "gestor", "manager": "gestor",
+  "coordenador": "gestor", "gerente": "gestor",
+  "gestor polo": "gestor", "nome gestor": "gestor",
+
+  // Telefone (prioriza TELEFONE sobre CELULAR — a segunda ocorrência não sobrescreve)
+  "tel": "tel", "telefone": "tel", "fone": "tel",
+  "phone": "tel", "celular": "tel", "cel": "tel",
+  "telefone responsavel recebimento": "tel",
+  "telfeone responsavel recebimento": "tel",
+
+  // E-mail
+  "email": "email", "e mail": "email", "e-mail": "email",
+  "agente email": "email",
 };
 
 interface RawRow {
@@ -32,7 +76,9 @@ function normalizeHeader(h: string): string {
   return h
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")  // remove acentos
+    .replace(/[^a-z0-9\s]/g, " ")    // substitui pontuação (pontos, hífen, _) por espaço
+    .replace(/\s+/g, " ")            // colapsa espaços múltiplos
     .trim();
 }
 
@@ -68,7 +114,11 @@ export function parseExcelImport(buffer: ArrayBuffer): ParsedPoloImport[] {
   for (const key of Object.keys(firstRow)) {
     const normalized = normalizeHeader(key);
     const mapped = HEADER_MAP[normalized];
-    if (mapped) colMap[key] = mapped;
+    // Só mapeia se o campo interno ainda não foi mapeado (evita sobrescrever
+    // com colunas secundárias: ex. UF_1 não sobrescreve UF, CELULAR não sobrescreve TELEFONE)
+    if (mapped && !Object.values(colMap).includes(mapped)) {
+      colMap[key] = mapped;
+    }
   }
 
   const requiredFields: Array<keyof RawRow> = ["cod", "nome", "uf", "cidade"];
