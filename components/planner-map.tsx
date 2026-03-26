@@ -38,6 +38,25 @@ function makeMarkerIcon(color: string, size = 30) {
   });
 }
 
+function ScrollWheelControl() {
+  const map = useMap();
+
+  useEffect(() => {
+    map.scrollWheelZoom.disable();
+    const container = map.getContainer();
+    const enable = () => map.scrollWheelZoom.enable();
+    const disable = () => map.scrollWheelZoom.disable();
+    container.addEventListener("mouseenter", enable);
+    container.addEventListener("mouseleave", disable);
+    return () => {
+      container.removeEventListener("mouseenter", enable);
+      container.removeEventListener("mouseleave", disable);
+    };
+  }, [map]);
+
+  return null;
+}
+
 function MapViewport({
   focusCoords,
   hostCoords,
@@ -189,11 +208,13 @@ export default function PlannerMap({
   }
 
   return (
-    <MapContainer center={BRAZIL_CENTER} zoom={4} className="planner-map">
+    <MapContainer center={BRAZIL_CENTER} zoom={4} className="planner-map" scrollWheelZoom={false}>
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
+
+      <ScrollWheelControl />
 
       <MapViewport
         activeTab={activeTab}

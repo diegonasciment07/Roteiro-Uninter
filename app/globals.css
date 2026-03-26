@@ -279,6 +279,7 @@ button, input, textarea, select { font: inherit; outline: none; }
   flex-direction: column;
   gap: 14px;
   overflow: hidden;
+  height: calc(100vh - var(--sticky-map-offset) - var(--shell-pad));
 }
 .map-panel {
   overflow: hidden;
@@ -604,6 +605,7 @@ button, input, textarea, select { font: inherit; outline: none; }
   .details-panel { grid-column: 1 / -1; }
   .map-panel { position: static; top: auto; }
   .planner-map, .leaflet-container { height: 640px; }
+  .sidebar, .details-panel { height: auto; }
 }
 
 @media (max-width: 900px) {
@@ -617,4 +619,5 @@ button, input, textarea, select { font: inherit; outline: none; }
   .map-panel { min-height: 420px; }
   .planner-map, .leaflet-container { min-height: 420px; }
   .field-grid { grid-template-columns: 1fr; }
+  .sidebar, .details-panel { height: auto; }
 }
