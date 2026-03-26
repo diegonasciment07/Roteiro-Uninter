@@ -10,6 +10,7 @@ export async function PATCH(
   const body = (await request.json()) as {
     latitude?: number;
     longitude?: number;
+    geocodePrecision?: string;
   };
 
   const latitude = Number(body.latitude);
@@ -27,6 +28,7 @@ export async function PATCH(
     data: {
       latitude,
       longitude,
+      ...(body.geocodePrecision ? { geocodePrecision: body.geocodePrecision } : {}),
     },
   });
 

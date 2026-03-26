@@ -1,0 +1,1 @@
+ALTER TABLE "Polo" ADD COLUMN IF NOT EXISTS "geocodePrecision" TEXT;

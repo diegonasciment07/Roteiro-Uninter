@@ -26,6 +26,7 @@ model Polo {
   email            String?
   latitude         Float?
   longitude        Float?
+  geocodePrecision String?                // "address" | "street" | "neighborhood" | "city"
   createdAt        DateTime               @default(now())
   updatedAt        DateTime               @updatedAt
   hostedEncounters Encounter[]            @relation("EncounterHost")

@@ -14,6 +14,7 @@ export interface PoloRecord {
   email: string | null;
   latitude: number | null;
   longitude: number | null;
+  geocodePrecision: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
