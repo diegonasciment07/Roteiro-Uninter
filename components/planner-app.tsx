@@ -528,23 +528,31 @@ export default function PlannerApp() {
     const win = window.open("", "_blank", "width=900,height=700");
     if (!win) return;
     const uf_label = encounters[0]?.uf ?? "";
+    let grandTotal = 0;
     const rows = encounters
-      .map(
-        (enc, idx) => `
+      .map((enc, idx) => {
+        const guestTotal = enc.participants.reduce((s, p) => s + p.participants, 0);
+        const encTotal = enc.hostParticipants + guestTotal;
+        grandTotal += encTotal;
+        return `
         <section class="card">
           <div class="card-header">
-            <span class="eyebrow">Encontro ${idx + 1}</span>
-            <h2>${enc.hostPolo.name}</h2>
-            <p class="date">${enc.scheduledAt ? new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "long", year: "numeric" }).format(new Date(enc.scheduledAt)) : "Data a definir"}</p>
+            <div class="card-header-row">
+              <div>
+                <span class="eyebrow">Encontro ${idx + 1}</span>
+                <h2>${enc.hostPolo.name}</h2>
+                <p class="date">${enc.scheduledAt ? new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "long", year: "numeric" }).format(new Date(enc.scheduledAt)) : "Data a definir"}</p>
+              </div>
+              <div class="total-badge">${encTotal} participante${encTotal !== 1 ? "s" : ""}</div>
+            </div>
           </div>
           <div class="card-body">
-            <p><strong>Anfitrião:</strong> ${enc.hostPolo.city}</p>
-            <p><strong>Participantes do anfitrião:</strong> ${enc.hostParticipants}</p>
-            ${enc.participants.length > 0 ? `<p><strong>Convidados:</strong></p><ul>${enc.participants.map((p) => `<li>${p.polo.city} — ${p.participants} participante${p.participants !== 1 ? "s" : ""}</li>`).join("")}</ul>` : ""}
+            <p><strong>Anfitrião:</strong> ${enc.hostPolo.city} — ${enc.hostParticipants} participante${enc.hostParticipants !== 1 ? "s" : ""}</p>
+            ${enc.participants.length > 0 ? `<p><strong>Convidados (${guestTotal} participante${guestTotal !== 1 ? "s" : ""}):</strong></p><ul>${enc.participants.map((p) => `<li>${p.polo.city} — ${p.participants} participante${p.participants !== 1 ? "s" : ""}</li>`).join("")}</ul>` : ""}
             ${enc.notes ? `<p class="notes"><strong>Observações:</strong> ${enc.notes}</p>` : ""}
           </div>
-        </section>`,
-      )
+        </section>`;
+      })
       .join("");
     win.document.write(`<!DOCTYPE html>
 <html lang="pt-BR">
@@ -555,12 +563,15 @@ export default function PlannerApp() {
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: "Segoe UI", Arial, sans-serif; font-size: 13px; color: #111; background: #fff; padding: 32px; }
     h1 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
-    .subtitle { font-size: 11px; color: #666; margin-bottom: 24px; }
+    .subtitle { font-size: 11px; color: #666; margin-bottom: 4px; }
+    .grand-total { font-size: 12px; font-weight: 700; color: #1565e8; margin-bottom: 24px; }
     .card { border: 1px solid #d0d7e3; border-radius: 10px; margin-bottom: 16px; overflow: hidden; page-break-inside: avoid; }
     .card-header { background: #f4f7fc; padding: 12px 16px 10px; border-bottom: 1px solid #d0d7e3; }
+    .card-header-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
     .eyebrow { font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #1565e8; display: block; margin-bottom: 3px; }
     .card-header h2 { font-size: 14px; font-weight: 700; margin-bottom: 3px; }
     .date { font-size: 11px; color: #555; }
+    .total-badge { background: #1565e8; color: #fff; font-size: 11px; font-weight: 700; border-radius: 99px; padding: 3px 10px; white-space: nowrap; align-self: center; }
     .card-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; }
     .card-body p { font-size: 12px; }
     .card-body ul { margin-left: 18px; font-size: 12px; }
@@ -572,6 +583,7 @@ export default function PlannerApp() {
 <body>
   <h1>Relatório de Encontros UNINTER${uf_label ? ` — ${uf_label}` : ""}</h1>
   <p class="subtitle">Gerado em ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "full", timeStyle: "short" }).format(new Date())} · ${encounters.length} encontro${encounters.length !== 1 ? "s" : ""}</p>
+  <p class="grand-total">Total geral: ${grandTotal} participante${grandTotal !== 1 ? "s" : ""}</p>
   ${rows}
   <p class="footer">UNINTER · Roteiro de Polos</p>
   <script>window.onload = () => { window.print(); }<\/script>
