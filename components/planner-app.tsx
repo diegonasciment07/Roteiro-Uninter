@@ -1287,6 +1287,60 @@ export default function PlannerApp() {
                       })}
                     </div>
 
+                    {/* Hint de clique e sugestões de polos próximos */}
+                    {trip.activeDayIndex === dayIndex && (() => {
+                      const lastStop = day.stops.at(-1);
+                      const lastCoord = lastStop ? coords[lastStop.poloId] : null;
+                      const usedIds = new Set(trip.days.flatMap((d) => d.stops.map((s) => s.poloId)));
+                      const nearby = lastCoord
+                        ? polos
+                            .filter((p) => !usedIds.has(p.id) && coords[p.id])
+                            .map((p) => ({ polo: p, km: Math.round(haversine(lastCoord, coords[p.id])) }))
+                            .filter(({ km }) => km <= 200)
+                            .sort((a, b) => a.km - b.km)
+                            .slice(0, 5)
+                        : [];
+                      return (
+                        <>
+                          <div className="add-hint">
+                            <MapPin size={12} style={{ display: "inline", marginRight: 5, opacity: 0.6 }} />
+                            Clique em um polo no mapa para adicionar
+                          </div>
+                          {nearby.length > 0 && (
+                            <div className="nearby-section">
+                              <p className="eyebrow" style={{ fontSize: "0.68rem", padding: "0 2px" }}>
+                                <MapPin size={9} style={{ display: "inline", marginRight: 4 }} />
+                                Polos próximos a {findPolo(lastStop!.poloId)?.city ?? "último polo"} — Adicionar ao Dia {dayIndex + 1}?
+                              </p>
+                              {nearby.map(({ polo, km }) => (
+                                <div key={polo.id} className="nearby-card">
+                                  <div>
+                                    <strong>{polo.name}</strong>
+                                    <p>{polo.city} · ~{km} km</p>
+                                  </div>
+                                  <button
+                                    className="btn btn-secondary"
+                                    type="button"
+                                    style={{ padding: "5px 10px", fontSize: "0.75rem", flexShrink: 0 }}
+                                    onClick={() => setTrip((c) => ({
+                                      ...c,
+                                      days: c.days.map((d, i) =>
+                                        i === dayIndex
+                                          ? { ...d, stops: [...d.stops, createTripStop(polo.id)] }
+                                          : d
+                                      ),
+                                    }))}
+                                  >
+                                    + ADD
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+
                     <div className="day-footer">
                       <span>{day.stops.length} parada{day.stops.length !== 1 ? "s" : ""}</span>
                       <span>~{dayTotalKm} km no dia</span>

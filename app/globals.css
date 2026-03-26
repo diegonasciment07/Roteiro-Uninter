@@ -469,6 +469,36 @@ button, input, textarea, select { font: inherit; outline: none; }
 .day-activator strong { color: var(--text); font-size: 0.9rem; }
 .day-footer { display: flex; justify-content: space-between; gap: 12px; margin-top: 12px; color: var(--muted); font-size: 0.8rem; }
 
+.add-hint {
+  border: 1.5px dashed var(--border-2);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.nearby-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+.nearby-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(7, 13, 26, 0.40);
+}
+.nearby-card strong { font-size: 0.8rem; color: var(--text); }
+.nearby-card p { font-size: 0.72rem; color: var(--muted); margin-top: 1px; }
+
 .record-card { overflow: hidden; }
 .record-header { padding: 14px 16px; border-bottom: 1px solid var(--border); }
 .record-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
