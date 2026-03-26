@@ -31,8 +31,16 @@ import {
   X,
 } from "lucide-react";
 
+import { buildAdminTokenHeaders, readStoredAdminToken } from "@/lib/admin-token";
 import { clearGeoCache, geocodePoloAddress, getGeoCache, setGeoCache } from "@/lib/geocode";
-import type { Coordinates, EncounterRecord, PoloRecord, TripDraft, TripRecord } from "@/lib/types";
+import type {
+  Coordinates,
+  EncounterRecord,
+  PoloRecord,
+  TripDraft,
+  TripRecord,
+  TripRouteSegment,
+} from "@/lib/types";
 
 const PlannerMap = dynamic(() => import("@/components/planner-map"), {
   ssr: false,
@@ -89,6 +97,15 @@ const formatDate = (value?: string | null) =>
   value
     ? new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "long", year: "numeric" }).format(new Date(value))
     : "Data a definir";
+const formatMinutes = (value: number) =>
+  value >= 60 ? `${Math.floor(value / 60)}h ${String(value % 60).padStart(2, "0")}min` : `${value} min`;
+const normalizeCityKey = (value?: string | null) =>
+  (value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
 
 function haversine(a: Coordinates, b: Coordinates) {
   const radius = 6371;
@@ -167,19 +184,24 @@ export default function PlannerApp() {
     if (!polos.length) return;
     let cancelled = false;
     void (async () => {
+      const targets = polos.filter((polo) => !coords[polo.id]);
+      if (!targets.length) {
+        setStatus(`${polos.length} polos prontos no mapa.`);
+        return;
+      }
+
       let index = 0;
-      for (const polo of polos) {
-        if (cancelled || coords[polo.id]) continue;
+      for (const polo of targets) {
+        if (cancelled) continue;
         index += 1;
-        setStatus(`Geocodificando ${polo.city} (${index}/${polos.length})...`);
+        setStatus(`Geocodificando ${polo.city} (${index}/${targets.length})...`);
         const result = await geocodePolo(polo);
-        if (!cancelled && result) setCoords((current) => ({ ...current, [polo.id]: result }));
         if (!cancelled) await sleep(350);
       }
       if (!cancelled) setStatus(`${polos.length} polos prontos no mapa.`);
     })();
     return () => { cancelled = true; };
-  }, [polos]);
+  }, [polos, coords]);
 
   async function loadUfs() {
     const data = await fetchJson<string[]>("/api/polos/ufs", { cache: "no-store" });
@@ -200,34 +222,93 @@ export default function PlannerApp() {
   }
 
   async function persistCoords(poloId: string, value: Coordinates, precision?: string) {
+    const adminToken = readStoredAdminToken();
+    if (!adminToken) return;
+
     try {
       await fetchJson(`/api/polos/${poloId}/coords`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...buildAdminTokenHeaders(adminToken),
+        },
         body: JSON.stringify({ latitude: value[0], longitude: value[1], geocodePrecision: precision }),
       });
     } catch { /* Best effort only. */ }
   }
 
-  async function geocodePolo(polo: PoloRecord) {
-    // Usa cache local v2 (invalida entradas legadas com precisão de cidade)
-    const cached = getGeoCache(polo.code);
-    if (cached) return [cached.lat, cached.lon] as Coordinates;
+  function applyGeocodeResult(poloId: string, nextCoords: Coordinates, precision: string | null) {
+    setCoords((current) => {
+      const existing = current[poloId];
+      if (existing && existing[0] === nextCoords[0] && existing[1] === nextCoords[1]) {
+        return current;
+      }
+
+      return { ...current, [poloId]: nextCoords };
+    });
+
+    setPolos((current) =>
+      current.map((polo) =>
+        polo.id === poloId
+          ? {
+              ...polo,
+              latitude: nextCoords[0],
+              longitude: nextCoords[1],
+              geocodePrecision: precision,
+            }
+          : polo,
+      ),
+    );
+  }
+
+  function poloNeedsCoordRefresh(polo: PoloRecord) {
+    return polo.latitude === null || polo.longitude === null || !polo.geocodePrecision;
+  }
+
+  async function geocodePolo(polo: PoloRecord, options?: { force?: boolean }) {
+    const cached = options?.force ? null : getGeoCache(polo.code, polo);
+    if (cached) {
+      const nextCoords = [cached.lat, cached.lon] as Coordinates;
+      applyGeocodeResult(polo.id, nextCoords, cached.precision);
+      return nextCoords;
+    }
 
     const result = await geocodePoloAddress(polo);
     if (!result) return null;
 
-    const coords: Coordinates = [result.lat, result.lon];
-    setGeoCache(polo.code, result);
-    void persistCoords(polo.id, coords, result.precision);
-    return coords;
+    const nextCoords: Coordinates = [result.lat, result.lon];
+    setGeoCache(polo.code, result, polo);
+    applyGeocodeResult(polo.id, nextCoords, result.precision);
+    void persistCoords(polo.id, nextCoords, result.precision);
+    return nextCoords;
   }
 
   const host = hostId ? polos.find((polo) => polo.id === hostId) ?? null : null;
   const hostCoords = host ? coords[host.id] ?? null : null;
+  useEffect(() => {
+    if (!host || tab !== "enc" || !poloNeedsCoordRefresh(host)) return;
+
+    let cancelled = false;
+    void (async () => {
+      setStatus(`Atualizando coordenadas de ${host.city}...`);
+      const result = await geocodePolo(host);
+      if (!cancelled) {
+        setStatus(
+          result
+            ? `${polos.length} polos prontos no mapa.`
+            : "Nao foi possivel refinar a coordenada deste polo agora.",
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [host, polos.length, tab]);
+
   const autoGuests = polos.filter((polo) => {
     if (!host || polo.id === host.id) return false;
-    if (polo.city.trim().toLowerCase() === host.city.trim().toLowerCase()) return true;
+    if (normalizeCityKey(polo.city) === normalizeCityKey(host.city)) return true;
     const targetCoords = coords[polo.id];
     return Boolean(hostCoords && targetCoords && haversine(hostCoords, targetCoords) <= radiusKm);
   });
@@ -242,6 +323,7 @@ export default function PlannerApp() {
     return !q || polo.name.toLowerCase().includes(q) || polo.city.toLowerCase().includes(q);
   });
   const tripIds = trip.days.flatMap((day) => day.stops.map((stop) => stop.poloId));
+  const tripUniquePoleCount = new Set(tripIds).size;
   const totalParticipants = hostParticipants + guests.reduce((sum, guest) => sum + (guestCounts[guest.id] ?? 0), 0);
 
   const findPolo = (id: string) =>
@@ -264,6 +346,73 @@ export default function PlannerApp() {
       return daySum + (previous ? estimateLeg(previous.poloId, stop.poloId)?.km ?? 0 : 0);
     }, 0);
   }, 0);
+
+  const tripRouteSegments = trip.days.reduce<TripRouteSegment[]>((segments, day, dayIndex) => {
+    day.stops.forEach((stop, stopIndex) => {
+      const previous =
+        stopIndex > 0 ? day.stops[stopIndex - 1] : dayIndex > 0 ? trip.days[dayIndex - 1].stops.at(-1) : undefined;
+      if (!previous) return;
+
+      const from = coords[previous.poloId];
+      const to = coords[stop.poloId];
+      const leg = estimateLeg(previous.poloId, stop.poloId);
+      const fromPolo = findPolo(previous.poloId);
+      const toPolo = findPolo(stop.poloId);
+
+      if (!from || !to || !leg || !fromPolo || !toPolo) return;
+
+      segments.push({
+        id: `${previous.id}-${stop.id}`,
+        dayIndex,
+        fromPoloId: previous.poloId,
+        toPoloId: stop.poloId,
+        fromLabel: fromPolo.city,
+        toLabel: toPolo.city,
+        from,
+        to,
+        km: leg.km,
+        minutes: leg.minutes,
+        transition: stopIndex === 0 && dayIndex > 0,
+      });
+    });
+
+    return segments;
+  }, []);
+
+  const optimizeTripDay = (dayIndex: number) => {
+    setTrip((current) => {
+      const day = current.days[dayIndex];
+      if (!day || day.stops.length < 3) return current;
+
+      const [firstStop, ...rest] = day.stops;
+      const optimized = [firstStop];
+      const remaining = [...rest];
+
+      while (remaining.length > 0) {
+        const last = optimized[optimized.length - 1];
+        let bestIndex = -1;
+        let bestDistance = Number.POSITIVE_INFINITY;
+
+        remaining.forEach((candidate, index) => {
+          const distance = estimateLeg(last.poloId, candidate.poloId)?.km ?? Number.POSITIVE_INFINITY;
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            bestIndex = index;
+          }
+        });
+
+        if (bestIndex < 0) return current;
+        optimized.push(remaining.splice(bestIndex, 1)[0]);
+      }
+
+      return {
+        ...current,
+        days: current.days.map((currentDay, index) =>
+          index === dayIndex ? { ...currentDay, stops: optimized } : currentDay,
+        ),
+      };
+    });
+  };
 
   const handlePoloClick = (polo: PoloRecord) => {
     if (tab === "trip") {
@@ -415,19 +564,43 @@ export default function PlannerApp() {
         </div>
 
         <div className="toolbar-actions">
-          <button
-            className="btn btn-primary"
-            type="button"
-            onClick={saveEncounter}
-            disabled={!hostId || savingEncounter}
-          >
-            {savingEncounter
-              ? <><CircleDot size={15} className="spin" /> Salvando…</>
-              : <><Plus size={15} /> Adicionar encontro</>}
-          </button>
-          <button className="btn btn-secondary" type="button" onClick={clearEncounter}>
-            <X size={15} /> Limpar
-          </button>
+          {tab === "enc" && (
+            <>
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={saveEncounter}
+                disabled={!hostId || savingEncounter}
+              >
+                {savingEncounter
+                  ? <><CircleDot size={15} className="spin" /> Salvando…</>
+                  : <><Save size={15} /> Salvar encontro</>}
+              </button>
+              <button className="btn btn-secondary" type="button" onClick={clearEncounter}>
+                <X size={15} /> Limpar seleção
+              </button>
+            </>
+          )}
+          {tab === "rot" && (
+            <button className="btn btn-primary" type="button" onClick={() => setTab("enc")}>
+              <Plus size={15} /> Novo encontro
+            </button>
+          )}
+          {tab === "trip" && (
+            <>
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={saveTrip}
+                disabled={savingTrip}
+              >
+                {savingTrip ? "Salvando…" : <><Save size={15} /> Salvar visita</>}
+              </button>
+              <button className="btn btn-secondary" type="button" onClick={() => setTrip(createTrip())}>
+                <RotateCcw size={15} /> Limpar visita
+              </button>
+            </>
+          )}
           <Link href="/admin/importar" className="btn btn-ghost">
             <UploadCloud size={15} /> Importar
           </Link>
@@ -507,14 +680,18 @@ export default function PlannerApp() {
         <section className="map-panel">
           {uf ? (
             <PlannerMap
+              key={`${uf}-${tab}-${hostId ?? "no-host"}-${trip.activeDayIndex}`}
               activeTab={tab}
+              activeTripDayIndex={trip.activeDayIndex}
               coordsByPoloId={coords}
               guestPoloIds={guests.map((g) => g.id)}
               hostPoloId={hostId}
               onPoloClick={handlePoloClick}
               polos={polos}
               radiusKm={radiusKm}
+              selectedEncounterPoloIds={host ? [host.id, ...guests.map((g) => g.id)] : []}
               tripPoloIds={tripIds}
+              tripRouteSegments={tripRouteSegments}
             />
           ) : (
             <div className="empty-card empty-map">
@@ -565,6 +742,10 @@ export default function PlannerApp() {
           {/* Tab: Encontro */}
           {tab === "enc" && (
             <div className="panel-scroll">
+              <div className="day-banner">
+                <CalendarDays size={13} style={{ display: "inline", marginRight: 6 }} />
+                Encontro é um <strong>evento em um polo anfitrião</strong>, com polos convidados dentro do raio selecionado.
+              </div>
               {!host ? (
                 <div className="empty-card">
                   <div className="empty-icon"><MapPin size={20} /></div>
@@ -756,6 +937,10 @@ export default function PlannerApp() {
           {/* Tab: Visita / Roteiro */}
           {tab === "trip" && (
             <div className="panel-scroll">
+              <div className="day-banner">
+                <Navigation size={13} style={{ display: "inline", marginRight: 6 }} />
+                Visita é um <strong>roteiro de viagem polo a polo</strong>, com deslocamentos estimados e traçado no mapa.
+              </div>
               {/* Estatísticas */}
               <div className="stat-row">
                 <div className="stat-pill">
@@ -763,7 +948,7 @@ export default function PlannerApp() {
                   <span>Dias</span>
                 </div>
                 <div className="stat-pill">
-                  <strong>{tripIds.length}</strong>
+                  <strong>{tripUniquePoleCount}</strong>
                   <span>Polos</span>
                 </div>
                 <div className="stat-pill">
@@ -869,127 +1054,167 @@ export default function PlannerApp() {
               {/* Banner de instrução */}
               <div className="day-banner">
                 <MapPin size={13} style={{ display: "inline", marginRight: 6 }} />
-                Clique em um polo no mapa para adicionar ao <strong>Dia {trip.activeDayIndex + 1}</strong>.
+                Visita é um roteiro polo a polo. Clique no mapa para montar o <strong>Dia {trip.activeDayIndex + 1}</strong> e acompanhe o traçado pontilhado entre as paradas.
               </div>
 
               {/* Dias */}
-              {trip.days.map((day, dayIndex) => (
-                <article key={day.id} className={`day-card${trip.activeDayIndex === dayIndex ? " is-active" : ""}`}>
-                  <div className="day-header">
-                    <button
-                      className="day-activator"
-                      type="button"
-                      onClick={() => setTrip((c) => ({ ...c, activeDayIndex: dayIndex }))}
-                    >
-                      <span><CalendarDays size={11} style={{ display: "inline", marginRight: 4 }} />Dia {dayIndex + 1}</span>
-                      <strong>{day.date ? formatDate(day.date) : "Sem data"}</strong>
-                    </button>
-                    <button
-                      className="btn btn-icon btn-danger"
-                      type="button"
-                      title="Remover dia"
-                      onClick={() => setTrip((c) => ({
-                        ...c,
-                        days: c.days.length === 1
-                          ? [{ ...c.days[0], stops: [] }]
-                          : c.days.filter((_, i) => i !== dayIndex),
-                        activeDayIndex: Math.max(0, Math.min(c.activeDayIndex, c.days.length - 2)),
-                      }))}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
+              {trip.days.map((day, dayIndex) => {
+                const interDayLeg =
+                  dayIndex > 0 && day.stops.length > 0 && trip.days[dayIndex - 1].stops.length > 0
+                    ? estimateLeg(trip.days[dayIndex - 1].stops.at(-1)!.poloId, day.stops[0].poloId)
+                    : null;
+                const dayTotalKm = day.stops.reduce((sum, stop, stopIndex) => {
+                  const previous = stopIndex > 0 ? day.stops[stopIndex - 1] : undefined;
+                  return sum + (previous ? estimateLeg(previous.poloId, stop.poloId)?.km ?? 0 : 0);
+                }, 0);
+                const dayTotalMinutes = day.stops.reduce((sum, stop, stopIndex) => {
+                  const previous = stopIndex > 0 ? day.stops[stopIndex - 1] : undefined;
+                  return sum + (previous ? estimateLeg(previous.poloId, stop.poloId)?.minutes ?? 0 : 0);
+                }, 0);
 
-                  <div className="field-grid">
+                return (
+                  <article key={day.id} className={`day-card${trip.activeDayIndex === dayIndex ? " is-active" : ""}`}>
+                    <div className="day-header">
+                      <button
+                        className="day-activator"
+                        type="button"
+                        onClick={() => setTrip((c) => ({ ...c, activeDayIndex: dayIndex }))}
+                      >
+                        <span><CalendarDays size={11} style={{ display: "inline", marginRight: 4 }} />Dia {dayIndex + 1}</span>
+                        <strong>{day.date ? formatDate(day.date) : "Sem data"}</strong>
+                      </button>
+                      <div className="inline-actions">
+                        {day.stops.length >= 3 && (
+                          <button
+                            className="btn btn-secondary"
+                            type="button"
+                            style={{ padding: "7px 12px" }}
+                            title="Reorganizar as paradas a partir da primeira parada"
+                            onClick={() => optimizeTripDay(dayIndex)}
+                          >
+                            <Navigation size={12} /> Melhor trajeto
+                          </button>
+                        )}
+                        <button
+                          className="btn btn-icon btn-danger"
+                          type="button"
+                          title="Remover dia"
+                          onClick={() => setTrip((c) => ({
+                            ...c,
+                            days: c.days.length === 1
+                              ? [{ ...c.days[0], stops: [] }]
+                              : c.days.filter((_, i) => i !== dayIndex),
+                            activeDayIndex: Math.max(0, Math.min(c.activeDayIndex, c.days.length - 2)),
+                          }))}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="field-grid">
+                      <label className="field-block">
+                        <span>Data</span>
+                        <input className="field" type="date" value={day.date}
+                          onChange={(e) => setTrip((c) => ({
+                            ...c, days: c.days.map((d, i) => i === dayIndex ? { ...d, date: e.target.value } : d)
+                          }))} />
+                      </label>
+                      <label className="field-block">
+                        <span>Pernoite</span>
+                        <input className="field" value={day.overnightCity} placeholder="Cidade"
+                          onChange={(e) => setTrip((c) => ({
+                            ...c, days: c.days.map((d, i) => i === dayIndex ? { ...d, overnightCity: e.target.value } : d)
+                          }))} />
+                      </label>
+                    </div>
+
                     <label className="field-block">
-                      <span>Data</span>
-                      <input className="field" type="date" value={day.date}
+                      <span>Hotel</span>
+                      <input className="field" value={day.hotel} placeholder="Nome do hotel (opcional)"
                         onChange={(e) => setTrip((c) => ({
-                          ...c, days: c.days.map((d, i) => i === dayIndex ? { ...d, date: e.target.value } : d)
+                          ...c, days: c.days.map((d, i) => i === dayIndex ? { ...d, hotel: e.target.value } : d)
                         }))} />
                     </label>
-                    <label className="field-block">
-                      <span>Pernoite</span>
-                      <input className="field" value={day.overnightCity} placeholder="Cidade"
-                        onChange={(e) => setTrip((c) => ({
-                          ...c, days: c.days.map((d, i) => i === dayIndex ? { ...d, overnightCity: e.target.value } : d)
-                        }))} />
-                    </label>
-                  </div>
 
-                  <label className="field-block">
-                    <span>Hotel</span>
-                    <input className="field" value={day.hotel} placeholder="Nome do hotel (opcional)"
-                      onChange={(e) => setTrip((c) => ({
-                        ...c, days: c.days.map((d, i) => i === dayIndex ? { ...d, hotel: e.target.value } : d)
-                      }))} />
-                  </label>
-
-                  {/* Paradas */}
-                  <div className="stop-list">
-                    {day.stops.map((stop, stopIndex) => {
-                      const leg = stopIndex > 0 ? estimateLeg(day.stops[stopIndex - 1].poloId, stop.poloId) : null;
-                      return (
-                        <div key={stop.id} className="stop-card">
-                          {leg && (
-                            <div className="leg-chip">
-                              <Navigation size={11} />
-                              ~{leg.km} km · {leg.minutes} min
-                            </div>
-                          )}
-                          <div className="stop-header">
-                            <div>
-                              <strong>{findPolo(stop.poloId)?.name ?? "Polo não carregado"}</strong>
-                              <p>{findPolo(stop.poloId)?.city ?? "Sem cidade"}</p>
-                            </div>
-                            <button
-                              className="btn btn-icon btn-ghost"
-                              type="button"
-                              title="Remover parada"
-                              onClick={() => setTrip((c) => ({
-                                ...c, days: c.days.map((d, i) => i === dayIndex
-                                  ? { ...d, stops: d.stops.filter((_, si) => si !== stopIndex) }
-                                  : d)
-                              }))}
-                            >
-                              <X size={13} />
-                            </button>
-                          </div>
-                          <div className="field-grid">
-                            <label className="field-block">
-                              <span><Clock size={11} style={{ display: "inline", marginRight: 3 }} />Chegada</span>
-                              <input className="field" type="time" value={stop.arrivalTime}
-                                onChange={(e) => setTrip((c) => ({
-                                  ...c, days: c.days.map((d, i) => i === dayIndex
-                                    ? { ...d, stops: d.stops.map((s, si) => si === stopIndex ? { ...s, arrivalTime: e.target.value } : s) }
-                                    : d)
-                                }))} />
-                            </label>
-                            <label className="field-block">
-                              <span><Clock size={11} style={{ display: "inline", marginRight: 3 }} />Saída</span>
-                              <input className="field" type="time" value={stop.departureTime}
-                                onChange={(e) => setTrip((c) => ({
-                                  ...c, days: c.days.map((d, i) => i === dayIndex
-                                    ? { ...d, stops: d.stops.map((s, si) => si === stopIndex ? { ...s, departureTime: e.target.value } : s) }
-                                    : d)
-                                }))} />
-                            </label>
-                          </div>
-                          <label className="field-block">
-                            <span>Objetivo da visita</span>
-                            <input className="field" value={stop.objective} placeholder="Ex: Reunião com coordenador"
-                              onChange={(e) => setTrip((c) => ({
-                                ...c, days: c.days.map((d, i) => i === dayIndex
-                                  ? { ...d, stops: d.stops.map((s, si) => si === stopIndex ? { ...s, objective: e.target.value } : s) }
-                                  : d)
-                              }))} />
-                          </label>
+                    {/* Paradas */}
+                    <div className="stop-list">
+                      {interDayLeg && (
+                        <div className="day-banner" style={{ marginBottom: 4 }}>
+                          <Navigation size={13} style={{ display: "inline", marginRight: 6 }} />
+                          Transição do dia anterior: <strong>~{interDayLeg.km} km</strong> · {formatMinutes(interDayLeg.minutes)}
                         </div>
-                      );
-                    })}
-                  </div>
-                </article>
-              ))}
+                      )}
+                      {day.stops.map((stop, stopIndex) => {
+                        const leg = stopIndex > 0 ? estimateLeg(day.stops[stopIndex - 1].poloId, stop.poloId) : null;
+                        return (
+                          <div key={stop.id} className="stop-card">
+                            {leg && (
+                              <div className="leg-chip">
+                                <Navigation size={11} />
+                                ~{leg.km} km · {formatMinutes(leg.minutes)}
+                              </div>
+                            )}
+                            <div className="stop-header">
+                              <div>
+                                <strong>{findPolo(stop.poloId)?.name ?? "Polo não carregado"}</strong>
+                                <p>{findPolo(stop.poloId)?.city ?? "Sem cidade"}</p>
+                              </div>
+                              <button
+                                className="btn btn-icon btn-ghost"
+                                type="button"
+                                title="Remover parada"
+                                onClick={() => setTrip((c) => ({
+                                  ...c, days: c.days.map((d, i) => i === dayIndex
+                                    ? { ...d, stops: d.stops.filter((_, si) => si !== stopIndex) }
+                                    : d)
+                                }))}
+                              >
+                                <X size={13} />
+                              </button>
+                            </div>
+                            <div className="field-grid">
+                              <label className="field-block">
+                                <span><Clock size={11} style={{ display: "inline", marginRight: 3 }} />Chegada</span>
+                                <input className="field" type="time" value={stop.arrivalTime}
+                                  onChange={(e) => setTrip((c) => ({
+                                    ...c, days: c.days.map((d, i) => i === dayIndex
+                                      ? { ...d, stops: d.stops.map((s, si) => si === stopIndex ? { ...s, arrivalTime: e.target.value } : s) }
+                                      : d)
+                                  }))} />
+                              </label>
+                              <label className="field-block">
+                                <span><Clock size={11} style={{ display: "inline", marginRight: 3 }} />Saída</span>
+                                <input className="field" type="time" value={stop.departureTime}
+                                  onChange={(e) => setTrip((c) => ({
+                                    ...c, days: c.days.map((d, i) => i === dayIndex
+                                      ? { ...d, stops: d.stops.map((s, si) => si === stopIndex ? { ...s, departureTime: e.target.value } : s) }
+                                      : d)
+                                  }))} />
+                              </label>
+                            </div>
+                            <label className="field-block">
+                              <span>Objetivo da visita</span>
+                              <input className="field" value={stop.objective} placeholder="Ex: Reunião com coordenador"
+                                onChange={(e) => setTrip((c) => ({
+                                  ...c, days: c.days.map((d, i) => i === dayIndex
+                                    ? { ...d, stops: d.stops.map((s, si) => si === stopIndex ? { ...s, objective: e.target.value } : s) }
+                                    : d)
+                                }))} />
+                            </label>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="day-footer">
+                      <span>{day.stops.length} parada{day.stops.length !== 1 ? "s" : ""}</span>
+                      <span>~{dayTotalKm} km no dia</span>
+                      <span>{dayTotalMinutes > 0 ? formatMinutes(dayTotalMinutes) : "Sem deslocamento"}</span>
+                    </div>
+                  </article>
+                );
+              })}
 
               {/* Ações do roteiro */}
               <div className="inline-actions">

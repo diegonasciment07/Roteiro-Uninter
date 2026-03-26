@@ -13,7 +13,7 @@ Aplicacao full-stack para planejar encontros e roteiros de visita de polos, pron
 ## Como rodar localmente
 
 1. Copie `.env.example` para `.env`.
-2. Ajuste `DATABASE_URL`.
+2. Ajuste `DATABASE_URL` e `DIRECT_URL`.
 3. Gere o client Prisma:
 
 ```bash
@@ -56,6 +56,7 @@ Se definir `ADMIN_IMPORT_TOKEN`, a importacao exige esse token.
 1. Crie um banco PostgreSQL e copie a string em `DATABASE_URL`.
 2. No Vercel, configure:
    - `DATABASE_URL`
+   - `DIRECT_URL`
    - `ADMIN_IMPORT_TOKEN` (opcional, mas recomendado)
 3. Antes do primeiro uso do ambiente de producao, execute:
    - `npm run db:migrate`
@@ -64,5 +65,6 @@ Se definir `ADMIN_IMPORT_TOKEN`, a importacao exige esse token.
 ## Observacoes
 
 - A geocodificacao acontece no cliente e usa cache local no navegador.
-- Quando um polo e geocodificado pela primeira vez, latitude e longitude sao persistidas no banco pela rota `/api/polos/[id]/coords`.
+- Quando um polo e geocodificado pela primeira vez no planner, a persistencia no banco so acontece se houver token administrativo salvo no navegador.
 - A importacao administrativa foi dividida em lotes para reduzir risco de timeout ao carregar a base completa em producao.
+- O token `ADMIN_IMPORT_TOKEN` protege a importacao, a administracao de polos e a persistencia administrativa de coordenadas.

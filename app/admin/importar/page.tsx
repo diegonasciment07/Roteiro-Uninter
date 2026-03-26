@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -13,6 +13,8 @@ import {
   UploadCloud,
   XCircle,
 } from "lucide-react";
+
+import { buildAdminTokenHeaders, readStoredAdminToken, storeAdminToken } from "@/lib/admin-token";
 
 type ImportTab = "excel" | "json";
 
@@ -29,6 +31,14 @@ export default function ImportarPolosPage() {
 
   function resetResult() { setMessage(null); setError(null); }
 
+  useEffect(() => {
+    setToken(readStoredAdminToken());
+  }, []);
+
+  useEffect(() => {
+    storeAdminToken(token);
+  }, [token]);
+
   async function handleExcelSubmit(event: React.FormEvent) {
     event.preventDefault();
     if (!selectedFile) { setError("Selecione um arquivo Excel (.xlsx ou .xls)."); return; }
@@ -39,7 +49,7 @@ export default function ImportarPolosPage() {
       formData.append("file", selectedFile);
       const res = await fetch("/api/admin/import-polos/excel", {
         method: "POST",
-        headers: token ? { "x-import-token": token } : {},
+        headers: buildAdminTokenHeaders(token),
         body: formData,
       });
       const data = (await res.json()) as { error?: string; message?: string };
@@ -63,7 +73,7 @@ export default function ImportarPolosPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { "x-import-token": token } : {}),
+          ...buildAdminTokenHeaders(token),
         },
         body: JSON.stringify({ rawText }),
       });
@@ -194,6 +204,7 @@ export default function ImportarPolosPage() {
                     ["cidade / município", "obrigatório"],
                     ["bairro", ""],
                     ["rua / endereço", ""],
+                    ["cep", ""],
                     ["agente", ""],
                     ["gestor / coordenador", ""],
                     ["tel / telefone / fone", ""],

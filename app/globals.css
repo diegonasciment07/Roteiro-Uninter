@@ -72,7 +72,16 @@ button, input, textarea, select { font: inherit; outline: none; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-2); }
 
 /* ─── Shell ──────────────────────────────────────────────────── */
-.planner-shell { padding: 16px; min-height: 100vh; display: flex; flex-direction: column; gap: 14px; }
+.planner-shell {
+  --shell-pad: 16px;
+  --sticky-topbar-offset: 16px;
+  --sticky-map-offset: 112px;
+  padding: var(--shell-pad);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
 .admin-shell { min-height: 100vh; padding: 24px; display: grid; place-items: start center; }
 
 /* ─── Topbar ─────────────────────────────────────────────────── */
@@ -87,6 +96,9 @@ button, input, textarea, select { font: inherit; outline: none; }
   background: rgba(15, 26, 46, 0.90);
   backdrop-filter: blur(20px) saturate(160%);
   box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.04);
+  position: sticky;
+  top: var(--sticky-topbar-offset);
+  z-index: 60;
 }
 
 /* ─── Brand ──────────────────────────────────────────────────── */
@@ -250,6 +262,7 @@ button, input, textarea, select { font: inherit; outline: none; }
   gap: 14px;
   flex: 1;
   min-height: calc(100vh - 110px);
+  align-items: start;
 }
 
 /* ─── Panels ─────────────────────────────────────────────────── */
@@ -267,8 +280,17 @@ button, input, textarea, select { font: inherit; outline: none; }
   gap: 14px;
   overflow: hidden;
 }
-.map-panel { overflow: hidden; }
-.planner-map, .leaflet-container { width: 100%; height: 100%; min-height: 640px; }
+.map-panel {
+  overflow: hidden;
+  position: sticky;
+  top: var(--sticky-map-offset);
+  align-self: start;
+}
+.planner-map, .leaflet-container {
+  width: 100%;
+  height: min(720px, calc(100vh - var(--sticky-map-offset) - var(--shell-pad)));
+  min-height: 640px;
+}
 .map-loading, .empty-map { height: 100%; min-height: 400px; display: grid; place-items: center; }
 
 /* ─── Panel headings ─────────────────────────────────────────── */
@@ -580,10 +602,17 @@ button, input, textarea, select { font: inherit; outline: none; }
   .brand-block { border-right: none; }
   .main-grid { grid-template-columns: 260px minmax(0, 1fr); }
   .details-panel { grid-column: 1 / -1; }
+  .map-panel { position: static; top: auto; }
+  .planner-map, .leaflet-container { height: 640px; }
 }
 
 @media (max-width: 900px) {
-  .planner-shell { padding: 12px; gap: 10px; }
+  .planner-shell {
+    --shell-pad: 12px;
+    --sticky-topbar-offset: 12px;
+    padding: 12px;
+    gap: 10px;
+  }
   .main-grid { grid-template-columns: 1fr; min-height: auto; }
   .map-panel { min-height: 420px; }
   .planner-map, .leaflet-container { min-height: 420px; }

@@ -1,3 +1,4 @@
+import { requireAdminToken } from "@/lib/admin-token";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -6,6 +7,9 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const authError = requireAdminToken(request);
+  if (authError) return authError;
+
   const { id } = await context.params;
   const body = (await request.json()) as {
     latitude?: number;

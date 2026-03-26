@@ -1,8 +1,12 @@
+import { requireAdminToken } from "@/lib/admin-token";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
+  const authError = requireAdminToken(request);
+  if (authError) return authError;
+
   const { searchParams } = new URL(request.url);
   const uf = searchParams.get("uf")?.trim().toUpperCase() || undefined;
   const q = searchParams.get("q")?.trim().toLowerCase() || undefined;
@@ -22,7 +26,6 @@ export async function GET(request: Request) {
         : {}),
     },
     orderBy: [{ uf: "asc" }, { city: "asc" }, { name: "asc" }],
-    take: 500,
   });
 
   return Response.json(polos);

@@ -24,6 +24,10 @@ export interface GeocodeResult {
   displayName: string;
 }
 
+interface GeocodeCachePayload extends GeocodeResult {
+  addressKey?: string;
+}
+
 interface NominatimResult {
   lat: string;
   lon: string;
@@ -96,28 +100,32 @@ export async function geocodePoloAddress(polo: {
 
   const attempts: Array<() => Promise<NominatimResult | null>> = [];
 
-  // 1. CEP + rua (mais preciso possível)
+  // 1. Endereço estruturado completo
   if (cep && street) {
     attempts.push(() => {
-      const p = new URLSearchParams({ street, postalcode: cep, country: "Brazil" });
+      const p = new URLSearchParams({ street, city, state, postalcode: cep, country: "Brazil" });
       return nominatimFetch(p);
     });
   }
 
-  // 2. Só CEP (muito preciso — nível de rua/bairro)
-  if (cep) {
-    attempts.push(() => {
-      const p = new URLSearchParams({ postalcode: cep, country: "Brazil" });
-      return nominatimFetch(p);
-    });
-  }
-
-  // 3. Busca estruturada com endereço completo
+  // 2. Busca estruturada completa sem CEP
   if (street) {
     attempts.push(() => {
       const p = new URLSearchParams({ street, city, state, country: "Brazil" });
       return nominatimFetch(p);
     });
+  }
+
+  // 3. Busca livre com rua + bairro + cidade + estado + CEP
+  if (street) {
+    if (neighborhood) {
+      attempts.push(() => {
+        const p = new URLSearchParams({
+          q: [street, neighborhood, city, state, cep, "Brasil"].filter(Boolean).join(", "),
+        });
+        return nominatimFetch(p);
+      });
+    }
 
     // 4. Sem estado (evita conflito quando cidade tem mesmo nome em outro estado)
     attempts.push(() => {
@@ -125,19 +133,24 @@ export async function geocodePoloAddress(polo: {
       return nominatimFetch(p);
     });
 
-    // 5. Busca livre com bairro incluído
-    if (neighborhood) {
-      attempts.push(() => {
-        const p = new URLSearchParams({
-          q: [street, neighborhood, city, state, "Brasil"].join(", "),
-        });
-        return nominatimFetch(p);
-      });
-    }
-
-    // 6. Busca livre sem bairro
+    // 5. Busca livre sem bairro
     attempts.push(() => {
       const p = new URLSearchParams({ q: [street, city, state, "Brasil"].join(", ") });
+      return nominatimFetch(p);
+    });
+  }
+
+  // 6. Busca por CEP contextualizado
+  if (cep) {
+    attempts.push(() => {
+      const p = new URLSearchParams({
+        q: [cep, city, state, "Brasil"].join(", "),
+      });
+      return nominatimFetch(p);
+    });
+
+    attempts.push(() => {
+      const p = new URLSearchParams({ postalcode: cep, country: "Brazil" });
       return nominatimFetch(p);
     });
   }
@@ -174,24 +187,69 @@ export async function geocodePoloAddress(polo: {
 }
 
 /** Versão do cache — incrementar invalida entradas antigas */
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 
-export function getGeoCache(code: number): GeocodeResult | null {
+function buildAddressKey(polo: {
+  street: string | null;
+  neighborhood: string | null;
+  city: string;
+  uf: string;
+  postalCode?: string | null;
+}) {
+  return [
+    polo.uf.trim().toUpperCase(),
+    polo.city.trim().toLowerCase(),
+    polo.neighborhood?.trim().toLowerCase() ?? "",
+    polo.street?.trim().toLowerCase() ?? "",
+    polo.postalCode?.trim().replace(/\D/g, "") ?? "",
+  ].join("|");
+}
+
+export function getGeoCache(
+  code: number,
+  polo?: {
+    street: string | null;
+    neighborhood: string | null;
+    city: string;
+    uf: string;
+    postalCode?: string | null;
+  },
+): GeocodeResult | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(`roteirosuninter:geo:${CACHE_VERSION}:${code}`);
-    return raw ? (JSON.parse(raw) as GeocodeResult) : null;
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as GeocodeCachePayload;
+    if (polo && parsed.addressKey && parsed.addressKey !== buildAddressKey(polo)) {
+      return null;
+    }
+
+    return parsed;
   } catch {
     return null;
   }
 }
 
-export function setGeoCache(code: number, result: GeocodeResult) {
+export function setGeoCache(
+  code: number,
+  result: GeocodeResult,
+  polo?: {
+    street: string | null;
+    neighborhood: string | null;
+    city: string;
+    uf: string;
+    postalCode?: string | null;
+  },
+) {
   if (typeof window === "undefined") return;
   try {
+    const payload: GeocodeCachePayload = polo
+      ? { ...result, addressKey: buildAddressKey(polo) }
+      : result;
     window.localStorage.setItem(
       `roteirosuninter:geo:${CACHE_VERSION}:${code}`,
-      JSON.stringify(result),
+      JSON.stringify(payload),
     );
   } catch { /* quota exceeded, ignore */ }
 }
@@ -199,7 +257,11 @@ export function setGeoCache(code: number, result: GeocodeResult) {
 export function clearGeoCache(code: number) {
   if (typeof window === "undefined") return;
   // Limpa versão atual e versões legadas
-  for (const key of [`roteirosuninter:geo:${CACHE_VERSION}:${code}`, `roteirosuninter:geo:${code}`]) {
+  for (const key of [
+    `roteirosuninter:geo:${CACHE_VERSION}:${code}`,
+    `roteirosuninter:geo:v2:${code}`,
+    `roteirosuninter:geo:${code}`,
+  ]) {
     try { window.localStorage.removeItem(key); } catch { /* ignore */ }
   }
 }

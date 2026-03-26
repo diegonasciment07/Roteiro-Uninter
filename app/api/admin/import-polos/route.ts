@@ -1,15 +1,12 @@
+import { requireAdminToken } from "@/lib/admin-token";
 import { prisma } from "@/lib/prisma";
 import { parsePoloImport } from "@/lib/polo-import";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  const expectedToken = process.env.ADMIN_IMPORT_TOKEN?.trim();
-  const providedToken = request.headers.get("x-import-token")?.trim();
-
-  if (expectedToken && providedToken !== expectedToken) {
-    return Response.json({ error: "Token de importacao invalido." }, { status: 401 });
-  }
+  const authError = requireAdminToken(request);
+  if (authError) return authError;
 
   const body = (await request.json()) as { rawText?: string };
   const rawText = body.rawText?.trim();

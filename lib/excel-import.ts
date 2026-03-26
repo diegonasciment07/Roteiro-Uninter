@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import type { ParsedPoloImport } from "@/lib/polo-import";
+import { normalizeNullableText, normalizePostalCode } from "@/lib/polo-validation";
 
 /**
  * Map de variações de cabeçalho → campo interno.
@@ -88,9 +89,8 @@ function normalizeHeader(h: string): string {
 }
 
 function emptyToNull(v: unknown): string | null {
-  if (v === undefined || v === null) return null;
-  const s = String(v).trim();
-  return s.length > 0 && s !== "0" ? s : null;
+  const normalized = normalizeNullableText(v != null ? String(v) : null);
+  return normalized && normalized !== "0" ? normalized : null;
 }
 
 function toStr(v: unknown): string {
@@ -162,11 +162,11 @@ export function parseExcelImport(buffer: ArrayBuffer): ParsedPoloImport[] {
       city,
       neighborhood: emptyToNull(mapped.bairro),
       street: emptyToNull(mapped.rua),
-      postalCode: emptyToNull(mapped.cep),
+      postalCode: normalizePostalCode(emptyToNull(mapped.cep)),
       agent: emptyToNull(mapped.agente),
       manager: emptyToNull(mapped.gestor),
       phone: emptyToNull(mapped.tel),
-      email: emptyToNull(mapped.email),
+      email: emptyToNull(mapped.email)?.toLowerCase() ?? null,
     });
   }
 

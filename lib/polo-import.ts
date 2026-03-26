@@ -1,4 +1,5 @@
 import { poloImportItemSchema } from "@/lib/validators";
+import { normalizeNullableText, normalizePostalCode } from "@/lib/polo-validation";
 
 export interface ParsedPoloImport {
   code: number;
@@ -42,12 +43,7 @@ function normalizeImportSource(rawText: string) {
 }
 
 function emptyToNull(value: string | number | null | undefined) {
-  if (value === undefined || value === null) {
-    return null;
-  }
-
-  const normalized = String(value).trim();
-  return normalized.length > 0 ? normalized : null;
+  return normalizeNullableText(value != null ? String(value) : null);
 }
 
 export function parsePoloImport(rawText: string) {
@@ -61,19 +57,19 @@ export function parsePoloImport(rawText: string) {
   return parsed.map((item) => {
     const normalized = poloImportItemSchema.parse(item);
 
-    const mapped: ParsedPoloImport = {
-      code: normalized.cod,
-      name: normalized.nome.trim(),
-      uf: normalized.uf.trim().toUpperCase(),
-      city: normalized.cidade.trim(),
-      neighborhood: emptyToNull(normalized.bairro),
-      street: emptyToNull(normalized.rua),
-      postalCode: null,
-      agent: emptyToNull(normalized.agente),
-      manager: emptyToNull(normalized.gestor),
-      phone: emptyToNull(normalized.tel),
-      email: emptyToNull(normalized.email),
-    };
+      const mapped: ParsedPoloImport = {
+        code: normalized.cod,
+        name: normalized.nome.trim(),
+        uf: normalized.uf.trim().toUpperCase(),
+        city: normalized.cidade.trim(),
+        neighborhood: emptyToNull(normalized.bairro),
+        street: emptyToNull(normalized.rua),
+        postalCode: normalizePostalCode(emptyToNull(normalized.cep)),
+        agent: emptyToNull(normalized.agente),
+        manager: emptyToNull(normalized.gestor),
+        phone: emptyToNull(normalized.tel),
+        email: emptyToNull(normalized.email)?.toLowerCase() ?? null,
+      };
 
     return mapped;
   });

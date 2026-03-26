@@ -75,6 +75,20 @@ export interface TripRecord {
   days: TripDayRecord[];
 }
 
+export interface TripRouteSegment {
+  id: string;
+  dayIndex: number;
+  fromPoloId: string;
+  toPoloId: string;
+  fromLabel: string;
+  toLabel: string;
+  from: Coordinates;
+  to: Coordinates;
+  km: number;
+  minutes: number;
+  transition: boolean;
+}
+
 export interface TripDraftStop {
   id: string;
   poloId: string;

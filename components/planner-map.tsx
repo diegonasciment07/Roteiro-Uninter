@@ -2,18 +2,21 @@
 
 import "leaflet/dist/leaflet.css";
 
-import { Circle, MapContainer, Marker, TileLayer, Tooltip, useMap } from "react-leaflet";
+import { Circle, MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap } from "react-leaflet";
 import { divIcon, latLngBounds } from "leaflet";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 
-import type { Coordinates, PoloRecord } from "@/lib/types";
+import type { Coordinates, PoloRecord, TripRouteSegment } from "@/lib/types";
 
 interface PlannerMapProps {
   polos: PoloRecord[];
   coordsByPoloId: Record<string, Coordinates>;
   hostPoloId: string | null;
   guestPoloIds: string[];
+  selectedEncounterPoloIds: string[];
   tripPoloIds: string[];
+  tripRouteSegments: TripRouteSegment[];
+  activeTripDayIndex: number;
   activeTab: "enc" | "rot" | "trip";
   radiusKm: number;
   onPoloClick: (polo: PoloRecord) => void;
@@ -36,12 +39,12 @@ function makeMarkerIcon(color: string, size = 30) {
 }
 
 function MapViewport({
-  allCoords,
+  focusCoords,
   hostCoords,
   activeTab,
   radiusKm,
 }: {
-  allCoords: Coordinates[];
+  focusCoords: Coordinates[];
   hostCoords: Coordinates | null;
   activeTab: "enc" | "rot" | "trip";
   radiusKm: number;
@@ -49,25 +52,56 @@ function MapViewport({
   const map = useMap();
 
   useEffect(() => {
-    if (hostCoords && activeTab !== "rot") {
-      map.setView(hostCoords, 10, { animate: false });
-      return;
+    const timeoutId = window.setTimeout(() => {
+      map.invalidateSize(false);
+    }, 0);
+
+    if (activeTab === "enc" && focusCoords.length > 1) {
+      map.fitBounds(latLngBounds(focusCoords), { padding: [40, 40], maxZoom: 11 });
+      return () => window.clearTimeout(timeoutId);
     }
 
-    if (allCoords.length > 1) {
-      map.fitBounds(latLngBounds(allCoords), { padding: [34, 34] });
-      return;
+    if (focusCoords.length > 1) {
+      map.fitBounds(latLngBounds(focusCoords), { padding: [34, 34], maxZoom: 11 });
+      return () => window.clearTimeout(timeoutId);
     }
 
-    if (allCoords.length === 1) {
-      map.setView(allCoords[0], 10, { animate: false });
-      return;
+    if (focusCoords.length === 1) {
+      map.setView(focusCoords[0], 10, { animate: false });
+      return () => window.clearTimeout(timeoutId);
     }
 
     map.setView(BRAZIL_CENTER, 4, { animate: false });
-  }, [activeTab, allCoords, hostCoords, map]);
+    return () => window.clearTimeout(timeoutId);
+  }, [activeTab, focusCoords, hostCoords, map]);
 
-  if (!hostCoords || activeTab === "rot") {
+  useEffect(() => {
+    let frame = 0;
+    const scheduleInvalidate = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        map.invalidateSize(false);
+      });
+    };
+
+    const container = map.getContainer();
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => scheduleInvalidate()) : null;
+
+    resizeObserver?.observe(container);
+    window.addEventListener("resize", scheduleInvalidate);
+    window.addEventListener("scroll", scheduleInvalidate, true);
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", scheduleInvalidate);
+      window.removeEventListener("scroll", scheduleInvalidate, true);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [map]);
+
+  if (!hostCoords || activeTab !== "enc") {
     return null;
   }
 
@@ -90,7 +124,10 @@ export default function PlannerMap({
   coordsByPoloId,
   hostPoloId,
   guestPoloIds,
+  selectedEncounterPoloIds,
   tripPoloIds,
+  tripRouteSegments,
+  activeTripDayIndex,
   activeTab,
   radiusKm,
   onPoloClick,
@@ -99,8 +136,33 @@ export default function PlannerMap({
   const tripSet = new Set(tripPoloIds);
   const hostCoords = hostPoloId ? coordsByPoloId[hostPoloId] ?? null : null;
 
-  const plotted = polos.filter((polo) => coordsByPoloId[polo.id]);
-  const allCoords = plotted.map((polo) => coordsByPoloId[polo.id]);
+  const plotted = useMemo(
+    () => polos.filter((polo) => coordsByPoloId[polo.id]),
+    [coordsByPoloId, polos],
+  );
+  const allCoords = useMemo(
+    () => plotted.map((polo) => coordsByPoloId[polo.id]),
+    [coordsByPoloId, plotted],
+  );
+  const encounterCoords = useMemo(
+    () =>
+      selectedEncounterPoloIds
+        .map((poloId) => coordsByPoloId[poloId])
+        .filter((coord): coord is Coordinates => Boolean(coord)),
+    [coordsByPoloId, selectedEncounterPoloIds],
+  );
+  const tripCoords = useMemo(
+    () =>
+      tripPoloIds
+        .map((poloId) => coordsByPoloId[poloId])
+        .filter((coord): coord is Coordinates => Boolean(coord)),
+    [coordsByPoloId, tripPoloIds],
+  );
+  const focusCoords = useMemo(() => {
+    if (activeTab === "trip" && tripCoords.length > 0) return tripCoords;
+    if (activeTab === "enc" && encounterCoords.length > 0) return encounterCoords;
+    return allCoords;
+  }, [activeTab, allCoords, encounterCoords, tripCoords]);
 
   function iconForPolo(polo: PoloRecord) {
     if (activeTab === "trip") {
@@ -135,10 +197,36 @@ export default function PlannerMap({
 
       <MapViewport
         activeTab={activeTab}
-        allCoords={allCoords}
+        focusCoords={focusCoords}
         hostCoords={hostCoords}
         radiusKm={radiusKm}
       />
+
+      {activeTab === "trip" &&
+        tripRouteSegments.map((segment) => {
+          const isActiveDay = segment.dayIndex === activeTripDayIndex;
+          return (
+            <Polyline
+              key={segment.id}
+              positions={[segment.from, segment.to]}
+              pathOptions={{
+                color: segment.transition ? "#f5b800" : "#1565e8",
+                dashArray: segment.transition ? "3 10" : "7 10",
+                opacity: isActiveDay ? 0.95 : 0.45,
+                weight: isActiveDay ? 4 : 2.5,
+                lineCap: "round",
+              }}
+            >
+              <Tooltip sticky>
+                {segment.transition ? "Transição entre dias" : `Dia ${segment.dayIndex + 1}`}
+                <br />
+                {segment.fromLabel} → {segment.toLabel}
+                <br />
+                ~{segment.km} km · ~{segment.minutes} min
+              </Tooltip>
+            </Polyline>
+          );
+        })}
 
       {plotted.map((polo) => (
         <Marker

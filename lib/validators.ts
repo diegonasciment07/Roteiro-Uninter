@@ -7,6 +7,7 @@ export const poloImportItemSchema = z.object({
   cidade: z.string().min(1),
   bairro: z.string().optional().nullable(),
   rua: z.string().optional().nullable(),
+  cep: z.union([z.string(), z.number()]).optional().nullable(),
   agente: z.string().optional().nullable(),
   gestor: z.string().optional().nullable(),
   tel: z.union([z.string(), z.number()]).optional().nullable(),

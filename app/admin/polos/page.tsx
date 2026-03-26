@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Filter,
   Globe,
+  KeyRound,
   Loader2,
   MapPin,
   Pencil,
@@ -17,7 +18,9 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { buildAdminTokenHeaders, readStoredAdminToken, storeAdminToken } from "@/lib/admin-token";
 import { clearGeoCache, geocodePoloAddress, setGeoCache, type GeocodePrecision } from "@/lib/geocode";
+import { getPoloAttentionIssues, getPoloBlockingIssues } from "@/lib/polo-validation";
 import type { PoloRecord } from "@/lib/types";
 
 const UF_LIST = [
@@ -59,6 +62,8 @@ interface EditDraft {
 export default function PolosAdminPage() {
   const [polos, setPolos] = useState<PoloRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [adminToken, setAdminToken] = useState("");
+  const [tokenReady, setTokenReady] = useState(false);
   const [uf, setUf] = useState("");
   const [q, setQ] = useState("");
   const [missingOnly, setMissingOnly] = useState(false);
@@ -76,6 +81,17 @@ export default function PolosAdminPage() {
     setTimeout(() => setToast(null), 5000);
   };
 
+  useEffect(() => {
+    const storedToken = readStoredAdminToken();
+    setAdminToken(storedToken);
+    setTokenReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!tokenReady) return;
+    storeAdminToken(adminToken);
+  }, [adminToken, tokenReady]);
+
   const loadPolos = async () => {
     setLoading(true);
     try {
@@ -83,9 +99,12 @@ export default function PolosAdminPage() {
       if (uf) params.set("uf", uf);
       if (q.trim()) params.set("q", q.trim());
       if (missingOnly) params.set("missing", "1");
-      const res = await fetch(`/api/admin/polos?${params}`);
-      if (!res.ok) throw new Error("Erro ao carregar polos.");
-      setPolos(await res.json());
+      const res = await fetch(`/api/admin/polos?${params}`, {
+        headers: buildAdminTokenHeaders(adminToken),
+      });
+      const data = (await res.json().catch(() => null)) as PoloRecord[] | { error?: string } | null;
+      if (!res.ok) throw new Error(data && "error" in data ? data.error ?? "Erro ao carregar polos." : "Erro ao carregar polos.");
+      setPolos(Array.isArray(data) ? data : []);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Erro ao carregar.", false);
     } finally {
@@ -93,7 +112,10 @@ export default function PolosAdminPage() {
     }
   };
 
-  useEffect(() => { void loadPolos(); }, [uf, missingOnly]);
+  useEffect(() => {
+    if (!tokenReady) return;
+    void loadPolos();
+  }, [uf, missingOnly, adminToken, tokenReady]);
 
   function openEdit(polo: PoloRecord) {
     setEditing({
@@ -117,10 +139,24 @@ export default function PolosAdminPage() {
     try {
       const lat = editing.latitude.trim() ? parseFloat(editing.latitude) : null;
       const lng = editing.longitude.trim() ? parseFloat(editing.longitude) : null;
+      const blockingIssues = getPoloBlockingIssues({
+        uf: editing.uf,
+        email: editing.email,
+        postalCode: editing.postalCode,
+        latitude: lat,
+        longitude: lng,
+      });
+
+      if (blockingIssues.length > 0) {
+        throw new Error(blockingIssues.join(" "));
+      }
 
       const res = await fetch(`/api/admin/polos/${editing.id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...buildAdminTokenHeaders(adminToken),
+        },
         body: JSON.stringify({
           name: editing.name,
           uf: editing.uf.toUpperCase(),
@@ -130,8 +166,8 @@ export default function PolosAdminPage() {
           postalCode: editing.postalCode || null,
           phone: editing.phone || null,
           email: editing.email || null,
-          latitude: lat && !isNaN(lat) ? lat : null,
-          longitude: lng && !isNaN(lng) ? lng : null,
+          latitude: lat !== null && !isNaN(lat) ? lat : null,
+          longitude: lng !== null && !isNaN(lng) ? lng : null,
           geocodePrecision: null,
         }),
       });
@@ -142,7 +178,7 @@ export default function PolosAdminPage() {
       const polo = polos.find((p) => p.id === updated.id);
       if (polo) clearGeoCache(polo.code);
       setEditing(null);
-      showToast("Polo atualizado. Geocodifique para atualizar o pin no mapa.");
+      showToast("Polo atualizado.");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Erro ao salvar.", false);
     } finally {
@@ -158,16 +194,22 @@ export default function PolosAdminPage() {
 
     const res = await fetch(`/api/admin/polos/${polo.id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...buildAdminTokenHeaders(adminToken),
+      },
       body: JSON.stringify({
         latitude: result.lat,
         longitude: result.lon,
         geocodePrecision: result.precision,
       }),
     });
-    if (!res.ok) return false;
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(data?.error ?? "Falha ao salvar coordenadas.");
+    }
 
-    setGeoCache(polo.code, result);
+    setGeoCache(polo.code, result, polo);
     const updated: PoloRecord = await res.json();
     setPolos((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
     return true;
@@ -229,7 +271,11 @@ export default function PolosAdminPage() {
       try {
         const ok = await geocodeAndSave(polo, forceReGeocode);
         if (ok) found++;
-      } catch { /* continue */ }
+      } catch (e) {
+        setBatchRunning(false);
+        showToast(e instanceof Error ? e.message : "Falha ao geocodificar o lote.", false);
+        return;
+      }
       setBatchProgress({ done: i + 1, total: targets.length, found });
       // Respeita rate limit do Nominatim: 1 req/s
       await new Promise((r) => setTimeout(r, 1150));
@@ -241,6 +287,34 @@ export default function PolosAdminPage() {
 
   const missingCount = polos.filter((p) => p.latitude == null || p.longitude == null).length;
   const lowPrecision = polos.filter((p) => p.geocodePrecision === "city" || p.geocodePrecision === "neighborhood").length;
+  const incompleteAddressCount = polos.filter((p) =>
+    getPoloAttentionIssues(p).some((issue) =>
+      issue.includes("Endereco") || issue.includes("CEP") || issue.includes("bairro")
+    )
+  ).length;
+  const blockingIssuesCount = polos.filter((p) => getPoloBlockingIssues(p).length > 0).length;
+  const editingLat = editing?.latitude.trim() ? parseFloat(editing.latitude) : null;
+  const editingLng = editing?.longitude.trim() ? parseFloat(editing.longitude) : null;
+  const editingBlockingIssues = editing
+    ? getPoloBlockingIssues({
+        uf: editing.uf,
+        email: editing.email,
+        postalCode: editing.postalCode,
+        latitude: editingLat,
+        longitude: editingLng,
+      })
+    : [];
+  const editingAttentionIssues = editing
+    ? getPoloAttentionIssues({
+        city: editing.city,
+        neighborhood: editing.neighborhood,
+        street: editing.street,
+        postalCode: editing.postalCode,
+        phone: editing.phone,
+        latitude: editingLat,
+        longitude: editingLng,
+      })
+    : [];
 
   return (
     <main className="admin-shell" style={{ alignItems: "flex-start", padding: "20px 24px" }}>
@@ -272,6 +346,27 @@ export default function PolosAdminPage() {
             <Link href="/admin/importar" className="btn btn-ghost"><RefreshCw size={14} /> Importar</Link>
             <Link href="/" className="btn btn-secondary"><ArrowLeft size={14} /> Voltar</Link>
           </div>
+        </div>
+
+        <div style={{
+          padding: "14px 18px",
+          border: "1px solid var(--border)", borderRadius: "var(--radius-xl)",
+          background: "rgba(15,26,46,0.84)",
+          display: "grid", gap: 8,
+        }}>
+          <label className="field-block">
+            <span><KeyRound size={12} style={{ display: "inline", marginRight: 4 }} />Token administrativo</span>
+            <input
+              className="field"
+              type="password"
+              value={adminToken}
+              onChange={(e) => setAdminToken(e.target.value)}
+              placeholder="ADMIN_IMPORT_TOKEN"
+            />
+          </label>
+          <span style={{ fontSize: "0.78rem", color: "var(--muted)" }}>
+            O mesmo token da tela de importação agora protege a listagem, edição e persistência de coordenadas.
+          </span>
         </div>
 
         {/* Legenda de precisão */}
@@ -351,6 +446,24 @@ export default function PolosAdminPage() {
               {lowPrecision} com baixa precisão
             </span>
           )}
+          {incompleteAddressCount > 0 && (
+            <span style={{
+              fontSize: "0.78rem", color: "#fcd34d",
+              background: "rgba(245,184,0,0.10)", border: "1px solid rgba(245,184,0,0.24)",
+              borderRadius: 99, padding: "3px 10px",
+            }}>
+              {incompleteAddressCount} com endereço incompleto
+            </span>
+          )}
+          {blockingIssuesCount > 0 && (
+            <span style={{
+              fontSize: "0.78rem", color: "#fca5a5",
+              background: "rgba(240,64,64,0.10)", border: "1px solid rgba(240,64,64,0.24)",
+              borderRadius: 99, padding: "3px 10px",
+            }}>
+              {blockingIssuesCount} com dados inválidos
+            </span>
+          )}
 
           <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
             {batchRunning && (
@@ -411,10 +524,12 @@ export default function PolosAdminPage() {
                   const isGeocoding = geocodingId === polo.id;
                   const precision = polo.geocodePrecision as GeocodePrecision | null;
                   const precCfg = precision ? PRECISION_CONFIG[precision] : null;
+                  const rowIssues = [...getPoloBlockingIssues(polo), ...getPoloAttentionIssues(polo)];
 
                   return (
                     <tr
                       key={polo.id}
+                      title={rowIssues.length ? rowIssues.join(" • ") : undefined}
                       style={{
                         borderBottom: "1px solid var(--border)",
                         background: idx % 2 === 0 ? "transparent" : "rgba(255,255,255,0.012)",
@@ -427,7 +542,22 @@ export default function PolosAdminPage() {
                         <span style={{ color: "var(--muted-2)", fontFamily: "monospace", fontSize: "0.78rem" }}>{polo.code}</span>
                       </td>
                       <td style={{ ...tdStyle, maxWidth: 220 }}>
-                        <span style={{ fontWeight: 600, fontSize: "0.84rem" }}>{polo.name}</span>
+                        <div style={{ display: "grid", gap: 4 }}>
+                          <span style={{ fontWeight: 600, fontSize: "0.84rem" }}>{polo.name}</span>
+                          {rowIssues.length > 0 && (
+                            <span style={{
+                              display: "inline-flex", alignItems: "center", gap: 4,
+                              width: "fit-content",
+                              background: rowIssues.some((issue) => issue.includes("inval")) ? "rgba(240,64,64,0.12)" : "rgba(245,184,0,0.10)",
+                              border: `1px solid ${rowIssues.some((issue) => issue.includes("inval")) ? "rgba(240,64,64,0.24)" : "rgba(245,184,0,0.24)"}`,
+                              borderRadius: 99, padding: "2px 8px",
+                              fontSize: "0.68rem", fontWeight: 700,
+                              color: rowIssues.some((issue) => issue.includes("inval")) ? "#fca5a5" : "#fcd34d",
+                            }}>
+                              {rowIssues.length} alerta{rowIssues.length !== 1 ? "s" : ""}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td style={tdStyle}>
                         <span style={{
@@ -503,6 +633,8 @@ export default function PolosAdminPage() {
                 {polos.length} polo{polos.length !== 1 ? "s" : ""} listado{polos.length !== 1 ? "s" : ""}
               </span>
               <div style={{ display: "flex", gap: 14, fontSize: "0.78rem", flexWrap: "wrap" }}>
+                {incompleteAddressCount > 0 && <span style={{ color: "#fcd34d" }}>{incompleteAddressCount} endereço{incompleteAddressCount !== 1 ? "s" : ""} a revisar</span>}
+                {blockingIssuesCount > 0 && <span style={{ color: "#fca5a5" }}>{blockingIssuesCount} registro{blockingIssuesCount !== 1 ? "s" : ""} inválido{blockingIssuesCount !== 1 ? "s" : ""}</span>}
                 {(["address", "street", "neighborhood", "city"] as GeocodePrecision[]).map((p) => {
                   const cnt = polos.filter((x) => x.geocodePrecision === p).length;
                   if (!cnt) return null;
@@ -604,6 +736,53 @@ export default function PolosAdminPage() {
                   <input className="field" type="email" value={editing.email}
                     onChange={(e) => setEditing((d) => d ? { ...d, email: e.target.value } : d)} />
                 </label>
+              </div>
+
+              <div
+                style={{
+                  border: "1px solid var(--border)", borderRadius: "var(--radius-lg)",
+                  background: "rgba(7,13,26,0.40)", padding: "14px 16px",
+                  display: "grid", gap: 8,
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+                  <span style={{ fontSize: "0.78rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-2)" }}>
+                    Validação do cadastro
+                  </span>
+                  {editingBlockingIssues.length === 0 ? (
+                    <span style={{ color: "#86efac", fontSize: "0.78rem", fontWeight: 700 }}>Sem bloqueios</span>
+                  ) : (
+                    <span style={{ color: "#fca5a5", fontSize: "0.78rem", fontWeight: 700 }}>
+                      {editingBlockingIssues.length} bloqueio{editingBlockingIssues.length !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                </div>
+                {editingBlockingIssues.length === 0 && editingAttentionIssues.length === 0 ? (
+                  <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>
+                    Cadastro consistente para geocodificação e uso operacional.
+                  </span>
+                ) : (
+                  <>
+                    {editingBlockingIssues.length > 0 && (
+                      <div style={{ display: "grid", gap: 5 }}>
+                        {editingBlockingIssues.map((issue) => (
+                          <span key={issue} style={{ color: "#fca5a5", fontSize: "0.8rem" }}>
+                            • {issue}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {editingAttentionIssues.length > 0 && (
+                      <div style={{ display: "grid", gap: 5 }}>
+                        {editingAttentionIssues.map((issue) => (
+                          <span key={issue} style={{ color: "#fcd34d", fontSize: "0.8rem" }}>
+                            • {issue}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
 
               {/* Coordenadas */}
