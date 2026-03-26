@@ -8,6 +8,7 @@ export interface PoloRecord {
   city: string;
   neighborhood: string | null;
   street: string | null;
+  postalCode: string | null;
   agent: string | null;
   manager: string | null;
   phone: string | null;

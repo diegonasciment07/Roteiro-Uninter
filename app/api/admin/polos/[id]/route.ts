@@ -9,6 +9,7 @@ const patchSchema = z.object({
   city: z.string().trim().min(1).max(200).optional(),
   neighborhood: z.string().trim().max(200).nullable().optional(),
   street: z.string().trim().max(400).nullable().optional(),
+  postalCode: z.string().trim().max(10).nullable().optional(),
   agent: z.string().trim().max(200).nullable().optional(),
   manager: z.string().trim().max(200).nullable().optional(),
   phone: z.string().trim().max(60).nullable().optional(),

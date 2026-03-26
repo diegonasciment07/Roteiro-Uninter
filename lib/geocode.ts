@@ -85,28 +85,47 @@ export async function geocodePoloAddress(polo: {
   neighborhood: string | null;
   city: string;
   uf: string;
+  postalCode?: string | null;
 }): Promise<GeocodeResult | null> {
   const state = UF_NAMES[polo.uf] ?? polo.uf;
   const street = polo.street?.trim() || null;
   const neighborhood = polo.neighborhood?.trim() || null;
   const city = polo.city.trim();
+  // Normaliza CEP: remove traços e espaços → "64460-000" → "64460000"
+  const cep = polo.postalCode?.trim().replace(/\D/g, "") || null;
 
   const attempts: Array<() => Promise<NominatimResult | null>> = [];
 
-  // 1. Busca estruturada com endereço completo (mais preciso)
+  // 1. CEP + rua (mais preciso possível)
+  if (cep && street) {
+    attempts.push(() => {
+      const p = new URLSearchParams({ street, postalcode: cep, country: "Brazil" });
+      return nominatimFetch(p);
+    });
+  }
+
+  // 2. Só CEP (muito preciso — nível de rua/bairro)
+  if (cep) {
+    attempts.push(() => {
+      const p = new URLSearchParams({ postalcode: cep, country: "Brazil" });
+      return nominatimFetch(p);
+    });
+  }
+
+  // 3. Busca estruturada com endereço completo
   if (street) {
     attempts.push(() => {
       const p = new URLSearchParams({ street, city, state, country: "Brazil" });
       return nominatimFetch(p);
     });
 
-    // 2. Sem estado (evita conflito quando cidade tem mesmo nome em outro estado)
+    // 4. Sem estado (evita conflito quando cidade tem mesmo nome em outro estado)
     attempts.push(() => {
       const p = new URLSearchParams({ street, city, country: "Brazil" });
       return nominatimFetch(p);
     });
 
-    // 3. Busca livre com bairro incluído
+    // 5. Busca livre com bairro incluído
     if (neighborhood) {
       attempts.push(() => {
         const p = new URLSearchParams({
@@ -116,15 +135,15 @@ export async function geocodePoloAddress(polo: {
       });
     }
 
-    // 4. Busca livre sem bairro
+    // 6. Busca livre sem bairro
     attempts.push(() => {
       const p = new URLSearchParams({ q: [street, city, state, "Brasil"].join(", ") });
       return nominatimFetch(p);
     });
   }
 
-  // 5. Busca estruturada só por bairro + cidade (quando não tem rua)
-  if (neighborhood && !street) {
+  // 7. Busca por bairro + cidade (quando não tem rua nem CEP)
+  if (neighborhood && !street && !cep) {
     attempts.push(() => {
       const p = new URLSearchParams({
         q: [neighborhood, city, state, "Brasil"].join(", "),
@@ -133,7 +152,7 @@ export async function geocodePoloAddress(polo: {
     });
   }
 
-  // 6. Fallback: só cidade + estado
+  // 8. Fallback: só cidade + estado
   attempts.push(() => {
     const p = new URLSearchParams({ city, state, country: "Brazil" });
     return nominatimFetch(p);

@@ -25,6 +25,7 @@ model Polo {
   manager          String?
   phone            String?
   email            String?
+  postalCode       String?
   latitude         Float?
   longitude        Float?
   geocodePrecision String?                // "address" | "street" | "neighborhood" | "city"

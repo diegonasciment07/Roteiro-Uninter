@@ -38,6 +38,10 @@ const HEADER_MAP: Record<string, keyof RawRow> = {
   "rua correspondencia": "rua", "endereco correspondencia": "rua",
   "logradouro correspondencia": "rua",
 
+  // CEP
+  "cep": "cep", "codigo postal": "cep", "codigopostal": "cep",
+  "cep correspondencia": "cep", "postal code": "cep", "zip": "cep",
+
   // Agente
   "agente": "agente", "agent": "agente",
   "agente nome": "agente", "nome agente": "agente",
@@ -66,6 +70,7 @@ interface RawRow {
   cidade?: unknown;
   bairro?: unknown;
   rua?: unknown;
+  cep?: unknown;
   agente?: unknown;
   gestor?: unknown;
   tel?: unknown;
@@ -157,6 +162,7 @@ export function parseExcelImport(buffer: ArrayBuffer): ParsedPoloImport[] {
       city,
       neighborhood: emptyToNull(mapped.bairro),
       street: emptyToNull(mapped.rua),
+      postalCode: emptyToNull(mapped.cep),
       agent: emptyToNull(mapped.agente),
       manager: emptyToNull(mapped.gestor),
       phone: emptyToNull(mapped.tel),

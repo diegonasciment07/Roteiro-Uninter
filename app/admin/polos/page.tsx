@@ -49,6 +49,7 @@ interface EditDraft {
   city: string;
   neighborhood: string;
   street: string;
+  postalCode: string;
   phone: string;
   email: string;
   latitude: string;
@@ -102,6 +103,7 @@ export default function PolosAdminPage() {
       city: polo.city,
       neighborhood: polo.neighborhood ?? "",
       street: polo.street ?? "",
+      postalCode: polo.postalCode ?? "",
       phone: polo.phone ?? "",
       email: polo.email ?? "",
       latitude: polo.latitude != null ? String(polo.latitude) : "",
@@ -125,11 +127,11 @@ export default function PolosAdminPage() {
           city: editing.city,
           neighborhood: editing.neighborhood || null,
           street: editing.street || null,
+          postalCode: editing.postalCode || null,
           phone: editing.phone || null,
           email: editing.email || null,
           latitude: lat && !isNaN(lat) ? lat : null,
           longitude: lng && !isNaN(lng) ? lng : null,
-          // Se endereço foi editado, limpa precisão para re-geocodar depois
           geocodePrecision: null,
         }),
       });
@@ -191,6 +193,7 @@ export default function PolosAdminPage() {
       const result = await geocodePoloAddress({
         street: editing.street || null,
         neighborhood: editing.neighborhood || null,
+        postalCode: editing.postalCode || null,
         city: editing.city,
         uf: editing.uf,
       });
@@ -584,7 +587,19 @@ export default function PolosAdminPage() {
                     placeholder="Ex: Rua das Flores, 123"
                     onChange={(e) => setEditing((d) => d ? { ...d, street: e.target.value } : d)} />
                 </label>
-                <label className="field-block" style={{ gridColumn: "1 / -1" }}>
+                <label className="field-block">
+                  <span>CEP <span style={{ color: "var(--muted-2)", fontWeight: 400 }}>(opcional — melhora o pin)</span></span>
+                  <input className="field" value={editing.postalCode}
+                    placeholder="00000-000"
+                    maxLength={9}
+                    onChange={(e) => {
+                      // Auto-formata: 00000000 → 00000-000
+                      const v = e.target.value.replace(/\D/g, "").slice(0, 8);
+                      const fmt = v.length > 5 ? `${v.slice(0, 5)}-${v.slice(5)}` : v;
+                      setEditing((d) => d ? { ...d, postalCode: fmt } : d);
+                    }} />
+                </label>
+                <label className="field-block">
                   <span>E-mail</span>
                   <input className="field" type="email" value={editing.email}
                     onChange={(e) => setEditing((d) => d ? { ...d, email: e.target.value } : d)} />

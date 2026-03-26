@@ -7,6 +7,7 @@ export interface ParsedPoloImport {
   city: string;
   neighborhood: string | null;
   street: string | null;
+  postalCode: string | null;
   agent: string | null;
   manager: string | null;
   phone: string | null;
@@ -67,6 +68,7 @@ export function parsePoloImport(rawText: string) {
       city: normalized.cidade.trim(),
       neighborhood: emptyToNull(normalized.bairro),
       street: emptyToNull(normalized.rua),
+      postalCode: null,
       agent: emptyToNull(normalized.agente),
       manager: emptyToNull(normalized.gestor),
       phone: emptyToNull(normalized.tel),
