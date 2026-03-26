@@ -524,6 +524,104 @@ export default function PlannerApp() {
 
   const plottedCount = Object.keys(coords).length;
 
+  const printTripDraft = () => {
+    const win = window.open("", "_blank", "width=960,height=800");
+    if (!win) return;
+    const fmt = (d?: string | null) =>
+      d ? new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "long", year: "numeric" }).format(new Date(d)) : "Data a definir";
+    const daysHtml = trip.days
+      .map((day, di) => {
+        const stopsHtml = day.stops
+          .map((stop, si) => {
+            const polo = findPolo(stop.poloId);
+            const leg = si > 0 ? estimateLeg(day.stops[si - 1].poloId, stop.poloId) : null;
+            return `
+              ${leg ? `<div class="leg">↓ &nbsp;~${leg.km} km &nbsp;·&nbsp; ~${formatMinutes(leg.minutes)}</div>` : ""}
+              <div class="stop">
+                <div class="stop-num">${si + 1}</div>
+                <div class="stop-info">
+                  <strong>${polo?.name ?? "Polo não encontrado"}</strong>
+                  <span>${polo?.city ?? ""}</span>
+                  ${stop.arrivalTime || stop.departureTime ? `<div class="stop-times">Chegada: ${stop.arrivalTime || "--:--"} &nbsp;·&nbsp; Saída: ${stop.departureTime || "--:--"}</div>` : ""}
+                  ${stop.objective ? `<div class="stop-obj">${stop.objective}</div>` : ""}
+                </div>
+              </div>`;
+          })
+          .join("");
+        const dayKm = day.stops.reduce((s, stop, i) => s + (i > 0 ? estimateLeg(day.stops[i - 1].poloId, stop.poloId)?.km ?? 0 : 0), 0);
+        const dayMin = day.stops.reduce((s, stop, i) => s + (i > 0 ? estimateLeg(day.stops[i - 1].poloId, stop.poloId)?.minutes ?? 0 : 0), 0);
+        const interLeg = di > 0 && trip.days[di - 1].stops.length > 0 && day.stops.length > 0
+          ? estimateLeg(trip.days[di - 1].stops.at(-1)!.poloId, day.stops[0].poloId) : null;
+        return `
+          <div class="day-section">
+            <div class="day-head">
+              <div><span class="eyebrow">Dia ${di + 1}</span><strong>${fmt(day.date)}</strong></div>
+              <div class="day-meta">${day.overnightCity ? `Pernoite: <strong>${day.overnightCity}</strong>` : ""}${day.hotel ? ` &nbsp;·&nbsp; Hotel: ${day.hotel}` : ""}</div>
+            </div>
+            ${interLeg ? `<div class="inter-day">Deslocamento do dia anterior: ~${interLeg.km} km · ~${formatMinutes(interLeg.minutes)}</div>` : ""}
+            ${day.stops.length === 0 ? "<p class=\"empty-day\">Nenhuma parada neste dia.</p>" : stopsHtml}
+            <div class="day-foot">${day.stops.length} parada${day.stops.length !== 1 ? "s" : ""} &nbsp;·&nbsp; ~${dayKm} km &nbsp;·&nbsp; ${dayMin > 0 ? formatMinutes(dayMin) : "Sem deslocamento"}</div>
+          </div>`;
+      })
+      .join("");
+    const flightOut = trip.flightOutboundFrom && trip.flightOutboundTo
+      ? `<div class="flight"><span class="eyebrow">Voo de ida</span><strong>${trip.flightOutboundFrom} → ${trip.flightOutboundTo}</strong>${trip.flightOutboundDate ? `<span>${fmt(trip.flightOutboundDate)}${trip.flightOutboundTime ? " às " + trip.flightOutboundTime : ""}</span>` : ""}</div>` : "";
+    const flightRet = trip.flightReturnFrom && trip.flightReturnTo
+      ? `<div class="flight"><span class="eyebrow">Voo de volta</span><strong>${trip.flightReturnFrom} → ${trip.flightReturnTo}</strong>${trip.flightReturnDate ? `<span>${fmt(trip.flightReturnDate)}${trip.flightReturnTime ? " às " + trip.flightReturnTime : ""}</span>` : ""}</div>` : "";
+    win.document.write(`<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="UTF-8"/>
+<title>Roteiro${trip.title ? " — " + trip.title : ""}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", Arial, sans-serif; font-size: 13px; color: #111; background: #fff; padding: 36px; max-width: 840px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 800; margin-bottom: 2px; }
+  .subtitle { font-size: 11px; color: #888; margin-bottom: 20px; }
+  .meta-row { display: flex; gap: 24px; margin-bottom: 18px; }
+  .meta-block { display: flex; flex-direction: column; gap: 2px; }
+  .eyebrow { font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #1565e8; display: block; margin-bottom: 1px; }
+  .flights { display: flex; gap: 16px; margin-bottom: 18px; }
+  .flight { flex: 1; border: 1px solid #dde4f0; border-radius: 8px; padding: 10px 13px; display: flex; flex-direction: column; gap: 2px; }
+  .flight strong { font-size: 13px; }
+  .flight span { font-size: 11px; color: #666; }
+  .summary-bar { display: flex; gap: 0; border: 1px solid #dde4f0; border-radius: 8px; overflow: hidden; margin-bottom: 24px; }
+  .summary-item { flex: 1; text-align: center; padding: 10px; border-right: 1px solid #dde4f0; }
+  .summary-item:last-child { border-right: none; }
+  .summary-item strong { display: block; font-size: 18px; font-weight: 800; color: #1565e8; }
+  .summary-item span { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: #888; font-weight: 600; }
+  .day-section { margin-bottom: 24px; page-break-inside: avoid; }
+  .day-head { display: flex; justify-content: space-between; align-items: center; background: #f4f7fc; border: 1px solid #dde4f0; border-radius: 8px 8px 0 0; padding: 10px 14px; border-bottom: none; }
+  .day-head div { display: flex; flex-direction: column; gap: 2px; }
+  .day-head strong { font-size: 13px; }
+  .day-meta { font-size: 11px; color: #666; text-align: right; }
+  .inter-day { font-size: 11px; color: #888; background: #f9f9f9; padding: 6px 14px; border: 1px solid #eee; border-top: none; font-style: italic; }
+  .stop { display: flex; gap: 10px; padding: 10px 14px; border: 1px solid #dde4f0; border-top: none; align-items: flex-start; background: #fff; }
+  .stop-num { width: 22px; height: 22px; border-radius: 50%; background: #1565e8; color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
+  .stop-info { display: flex; flex-direction: column; gap: 2px; }
+  .stop-info strong { font-size: 12px; }
+  .stop-info span { font-size: 11px; color: #888; }
+  .stop-times { font-size: 11px; color: #555; margin-top: 2px; }
+  .stop-obj { font-size: 11px; color: #444; font-style: italic; border-left: 2px solid #1565e8; padding-left: 6px; margin-top: 3px; }
+  .leg { font-size: 10px; color: #aaa; padding: 4px 14px; border: 1px solid #eee; border-top: none; background: #fafafa; }
+  .day-foot { font-size: 11px; color: #888; padding: 8px 14px; border: 1px solid #dde4f0; border-top: none; border-radius: 0 0 8px 8px; background: #f9f9f9; }
+  .empty-day { padding: 10px 14px; border: 1px solid #eee; border-top: none; color: #aaa; font-style: italic; font-size: 12px; }
+  .footer { margin-top: 32px; font-size: 10px; color: #bbb; text-align: center; border-top: 1px solid #eee; padding-top: 12px; }
+  @media print { body { padding: 16px; } }
+</style></head><body>
+  <h1>${trip.title || "Roteiro de Viagem"}</h1>
+  <p class="subtitle">Gerado em ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "full", timeStyle: "short" }).format(new Date())}${trip.traveler ? " · " + trip.traveler : ""}${trip.vehicle ? " · " + trip.vehicle : ""}</p>
+  ${flightOut || flightRet ? `<div class="flights">${flightOut}${flightRet}</div>` : ""}
+  <div class="summary-bar">
+    <div class="summary-item"><strong>${trip.days.length}</strong><span>Dias</span></div>
+    <div class="summary-item"><strong>${tripUniquePoleCount}</strong><span>Polos</span></div>
+    <div class="summary-item"><strong>~${tripKm}</strong><span>km est.</span></div>
+  </div>
+  ${daysHtml}
+  <p class="footer">UNINTER · Roteiro de Polos</p>
+  <script>window.onload = () => { window.print(); }<\/script>
+</body></html>`);
+    win.document.close();
+  };
+
   const printEncounters = () => {
     const win = window.open("", "_blank", "width=900,height=700");
     if (!win) return;
@@ -1017,10 +1115,6 @@ export default function PlannerApp() {
           {/* Tab: Visita / Roteiro */}
           {tab === "trip" && (
             <div className="panel-scroll">
-              <div className="day-banner">
-                <Navigation size={13} style={{ display: "inline", marginRight: 6 }} />
-                Visita é um <strong>roteiro de viagem polo a polo</strong>, com deslocamentos estimados e traçado no mapa.
-              </div>
               {/* Estatísticas */}
               <div className="stat-row">
                 <div className="stat-pill">
@@ -1129,12 +1223,6 @@ export default function PlannerApp() {
                     </label>
                   </div>
                 </div>
-              </div>
-
-              {/* Banner de instrução */}
-              <div className="day-banner">
-                <MapPin size={13} style={{ display: "inline", marginRight: 6 }} />
-                Visita é um roteiro polo a polo. Clique no mapa para montar o <strong>Dia {trip.activeDayIndex + 1}</strong> e acompanhe o traçado pontilhado entre as paradas.
               </div>
 
               {/* Dias */}
@@ -1367,12 +1455,20 @@ export default function PlannerApp() {
                   <RotateCcw size={14} /> Limpar
                 </button>
                 <button
+                  className="btn btn-secondary"
+                  type="button"
+                  onClick={printTripDraft}
+                  title="Gerar PDF do roteiro atual"
+                >
+                  <Save size={14} /> PDF
+                </button>
+                <button
                   className="btn btn-primary"
                   type="button"
                   onClick={saveTrip}
                   disabled={savingTrip}
                 >
-                  {savingTrip ? "Salvando…" : <><Save size={14} /> Salvar viagem</>}
+                  {savingTrip ? "Salvando…" : <><Save size={14} /> Salvar</>}
                 </button>
               </div>
 

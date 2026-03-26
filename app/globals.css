@@ -342,16 +342,16 @@ button, input, textarea, select { font: inherit; outline: none; }
 .polo-item {
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 11px 14px;
-  background: rgba(7, 13, 26, 0.42);
+  border-radius: var(--radius-sm);
+  padding: 10px 13px;
+  background: rgba(7, 13, 26, 0.38);
   color: var(--text);
   text-align: left;
   cursor: pointer;
   transition: all var(--duration) var(--ease);
   display: flex; flex-direction: column; gap: 2px;
 }
-.polo-item:hover { border-color: var(--border-2); background: rgba(7,13,26,0.66); transform: translateX(2px); }
+.polo-item:hover { border-color: var(--border-2); background: rgba(7,13,26,0.60); border-left-color: var(--brand); }
 .polo-item.is-host {
   border-color: rgba(245, 184, 0, 0.40);
   background: var(--gold-dim);
@@ -398,20 +398,20 @@ button, input, textarea, select { font: inherit; outline: none; }
 }
 .tab-button:hover { color: var(--text-2); background: rgba(255,255,255,0.04); }
 .tab-button.is-active {
-  border-color: var(--border-2);
-  background: var(--panel-2);
+  border-color: rgba(21,101,232,0.35);
+  background: rgba(21,101,232,0.12);
   color: var(--text);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255,255,255,0.05);
 }
 
 /* ─── Cards ──────────────────────────────────────────────────── */
 .summary-card, .empty-card, .record-card, .guest-card, .day-card, .stop-card, .notice {
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: rgba(7, 13, 26, 0.52);
+  border-radius: var(--radius);
+  background: rgba(9, 15, 28, 0.68);
 }
 .summary-card, .empty-card, .record-body, .guest-card, .day-card, .stop-card, .notice {
-  padding: 16px;
+  padding: 14px 16px;
 }
 .summary-host {
   border-color: rgba(245, 184, 0, 0.24);
@@ -433,11 +433,12 @@ button, input, textarea, select { font: inherit; outline: none; }
 }
 .leg-chip {
   display: inline-flex; align-items: center; gap: 5px;
-  border-radius: 99px; padding: 4px 10px;
-  background: rgba(21,101,232,0.10);
-  border: 1px solid rgba(21,101,232,0.20);
-  color: var(--text-2); font-size: 0.78rem; font-weight: 600;
-  margin-bottom: 8px;
+  border-radius: 99px; padding: 3px 9px;
+  background: rgba(21,101,232,0.08);
+  border: 1px solid rgba(21,101,232,0.16);
+  color: var(--muted); font-size: 0.74rem; font-weight: 600;
+  margin-bottom: 4px;
+  letter-spacing: 0.01em;
 }
 
 .notes-box {
@@ -457,9 +458,9 @@ button, input, textarea, select { font: inherit; outline: none; }
 .day-banner strong { color: var(--text); }
 
 .day-card.is-active {
-  border-color: rgba(21,101,232,0.38);
-  background: rgba(21,101,232,0.07);
-  box-shadow: 0 0 0 1px rgba(21,101,232,0.12);
+  border-color: rgba(21,101,232,0.45);
+  background: rgba(21,101,232,0.08);
+  box-shadow: 0 0 0 1px rgba(21,101,232,0.14), var(--shadow-sm);
 }
 .day-activator {
   padding: 0; border: none; background: transparent; text-align: left; cursor: pointer;
@@ -500,13 +501,26 @@ button, input, textarea, select { font: inherit; outline: none; }
 .nearby-card p { font-size: 0.72rem; color: var(--muted); margin-top: 1px; }
 
 .record-card { overflow: hidden; }
-.record-header { padding: 14px 16px; border-bottom: 1px solid var(--border); }
-.record-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
-.record-card h2 { font-size: 0.95rem; }
+.record-header { padding: 13px 16px; border-bottom: 1px solid var(--border); }
+.record-header::before {
+  content: "";
+  display: block;
+  height: 2px;
+  background: linear-gradient(90deg, var(--brand) 0%, transparent 100%);
+  margin: -13px -16px 10px;
+}
+.record-body { padding: 13px 16px; display: flex; flex-direction: column; gap: 8px; }
+.record-card h2 { font-size: 0.92rem; font-weight: 700; }
 
-.stop-card { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
-.stop-header strong { font-size: 0.88rem; color: var(--text); }
-.stop-header p { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+.stop-card {
+  padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+  border-left: 2px solid rgba(21,101,232,0.40);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: rgba(7, 13, 26, 0.45);
+}
+.stop-header strong { font-size: 0.86rem; color: var(--text); font-weight: 700; }
+.stop-header p { font-size: 0.75rem; color: var(--muted); margin-top: 1px; }
 
 .stack-section, .stop-list, .polo-list, .panel-scroll { display: flex; flex-direction: column; gap: 8px; }
 .panel-scroll { overflow-y: auto; flex: 1; min-height: 0; padding-right: 2px; }
