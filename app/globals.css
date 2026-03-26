@@ -479,7 +479,8 @@ button, input, textarea, select { font: inherit; outline: none; }
 .stop-header p { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
 
 .stack-section, .stop-list, .polo-list, .panel-scroll { display: flex; flex-direction: column; gap: 8px; }
-.panel-scroll { overflow-y: auto; flex: 1; padding-right: 2px; }
+.panel-scroll { overflow-y: auto; flex: 1; min-height: 0; padding-right: 2px; }
+.polo-list { overflow-y: auto; flex: 1; min-height: 0; }
 
 .inline-actions, .guest-actions, .stop-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
