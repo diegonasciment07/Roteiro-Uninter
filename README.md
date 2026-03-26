@@ -23,7 +23,7 @@ npm run db:generate
 4. Crie as tabelas:
 
 ```bash
-npm run db:push
+npm run db:migrate
 ```
 
 5. Opcionalmente carregue uma base inicial reduzida:
@@ -57,8 +57,8 @@ Se definir `ADMIN_IMPORT_TOKEN`, a importacao exige esse token.
 2. No Vercel, configure:
    - `DATABASE_URL`
    - `ADMIN_IMPORT_TOKEN` (opcional, mas recomendado)
-3. Execute no ambiente de deploy:
-   - `npm run db:migrate` ou `npm run db:push`
+3. Antes do primeiro uso do ambiente de producao, execute:
+   - `npm run db:migrate`
 4. Acesse `/admin/importar` para carregar a base completa de polos.
 
 ## Observacoes
