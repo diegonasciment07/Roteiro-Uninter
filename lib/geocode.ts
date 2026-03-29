@@ -60,6 +60,39 @@ function rankToPrecision(rank: number, type: string): GeocodePrecision {
   return "city";
 }
 
+interface BrasilApiCepResult {
+  cep: string;
+  city: string;
+  state: string;
+  location?: {
+    type: string;
+    coordinates?: { longitude: string; latitude: string };
+  };
+}
+
+async function brasilApiCepFetch(cep: string): Promise<GeocodeResult | null> {
+  const digits = cep.replace(/\D/g, "");
+  if (digits.length !== 8) return null;
+  try {
+    const res = await fetch(`https://brasilapi.com.br/api/cep/v2/${digits}`, {
+      headers: { "Accept": "application/json" },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as BrasilApiCepResult;
+    const lat = data.location?.coordinates?.latitude;
+    const lon = data.location?.coordinates?.longitude;
+    if (!lat || !lon) return null;
+    return {
+      lat: parseFloat(lat),
+      lon: parseFloat(lon),
+      precision: "street",
+      displayName: `${data.city}, ${data.state}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function nominatimFetch(params: URLSearchParams): Promise<NominatimResult | null> {
   params.set("format", "json");
   params.set("limit", "1");
@@ -181,6 +214,12 @@ export async function geocodePoloAddress(polo: {
         displayName: result.display_name,
       };
     }
+  }
+
+  // Fallback: BrasilAPI por CEP (ótima cobertura para municípios do interior)
+  if (cep) {
+    const result = await brasilApiCepFetch(cep);
+    if (result) return result;
   }
 
   return null;
