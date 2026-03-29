@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   BookOpen,
   CalendarDays,
@@ -128,7 +128,9 @@ async function fetchJson<T>(input: RequestInfo, init?: RequestInit) {
 
 export default function PlannerApp() {
   const [ufs, setUfs] = useState<string[]>([]);
-  const [uf, setUf] = useState("");
+  const [selectedUfs, setSelectedUfs] = useState<string[]>([]);
+  const [ufDropdownOpen, setUfDropdownOpen] = useState(false);
+  const ufPickerRef = useRef<HTMLDivElement>(null);
   const [polos, setPolos] = useState<PoloRecord[]>([]);
   const [coords, setCoords] = useState<Record<string, Coordinates>>({});
   const [search, setSearch] = useState("");
@@ -159,7 +161,18 @@ export default function PlannerApp() {
   }, [toast]);
 
   useEffect(() => {
-    if (!uf) {
+    if (!ufDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (ufPickerRef.current && !ufPickerRef.current.contains(e.target as Node)) {
+        setUfDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [ufDropdownOpen]);
+
+  useEffect(() => {
+    if (!selectedUfs.length) {
       setPolos([]);
       setCoords({});
       clearEncounter();
@@ -167,8 +180,10 @@ export default function PlannerApp() {
     }
 
     void (async () => {
-      setStatus(`Carregando polos de ${uf}...`);
-      const data = await fetchJson<PoloRecord[]>(`/api/polos?uf=${uf}`, { cache: "no-store" });
+      const label = selectedUfs.length === 1 ? selectedUfs[0] : `${selectedUfs.length} estados`;
+      setStatus(`Carregando polos de ${label}...`);
+      const params = selectedUfs.map((u) => `uf=${u}`).join("&");
+      const data = await fetchJson<PoloRecord[]>(`/api/polos?${params}`, { cache: "no-store" });
       const nextCoords: Record<string, Coordinates> = {};
       data.forEach((polo) => {
         if (polo.latitude !== null && polo.longitude !== null) nextCoords[polo.id] = [polo.latitude, polo.longitude];
@@ -178,7 +193,7 @@ export default function PlannerApp() {
       clearEncounter();
       setStatus(data.length ? `${data.length} polos carregados.` : "Nenhum polo cadastrado.");
     })().catch((error) => setStatus(error instanceof Error ? error.message : "Falha ao carregar polos."));
-  }, [uf]);
+  }, [selectedUfs]);
 
   useEffect(() => {
     if (!polos.length) return;
@@ -449,14 +464,14 @@ export default function PlannerApp() {
   };
 
   const saveEncounter = async () => {
-    if (!hostId || !uf) return;
+    if (!hostId || !selectedUfs.length) return;
     setSavingEncounter(true);
     try {
       await fetchJson("/api/encontros", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          uf,
+          uf: host?.uf ?? selectedUfs[0] ?? "",
           hostPoloId: hostId,
           hostParticipants,
           scheduledAt: encounterDate || null,
@@ -489,7 +504,7 @@ export default function PlannerApp() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: trip.title || `Roteiro ${uf || "UNINTER"}`,
+          title: trip.title || `Roteiro ${selectedUfs.join("/") || "UNINTER"}`,
           traveler: trip.traveler || null,
           flightOutboundFrom: trip.flightOutboundFrom || null,
           flightOutboundTo: trip.flightOutboundTo || null,
@@ -705,17 +720,45 @@ export default function PlannerApp() {
         </div>
 
         <div className="toolbar-group">
-          <div style={{ position: "relative" }}>
-            <select
-              className="toolbar-select"
-              value={uf}
-              onChange={(e) => setUf(e.target.value)}
+          <div className="uf-picker" ref={ufPickerRef}>
+            <button
+              type="button"
+              className={`uf-picker-btn${ufDropdownOpen ? " open" : ""}`}
+              onClick={() => setUfDropdownOpen((v) => !v)}
             >
-              <option value="">Selecione o estado…</option>
-              {ufs.map((opt) => (
-                <option key={opt} value={opt}>{UF_NAMES[opt] ? `${opt} — ${UF_NAMES[opt]}` : opt}</option>
-              ))}
-            </select>
+              {selectedUfs.length === 0 && <span className="uf-placeholder">Selecione o estado…</span>}
+              {selectedUfs.length === 1 && <span>{selectedUfs[0]} — {UF_NAMES[selectedUfs[0]] ?? selectedUfs[0]}</span>}
+              {selectedUfs.length > 1 && (
+                <span className="uf-tags">
+                  {selectedUfs.map((u) => <span key={u} className="uf-tag">{u}</span>)}
+                </span>
+              )}
+            </button>
+            {ufDropdownOpen && (
+              <div className="uf-dropdown">
+                <div className="uf-dropdown-actions">
+                  <button type="button" onClick={() => setSelectedUfs([...ufs])}>Todos</button>
+                  <button type="button" onClick={() => setSelectedUfs([])}>Limpar</button>
+                </div>
+                <div className="uf-dropdown-list">
+                  {ufs.map((opt) => (
+                    <label key={opt} className="uf-option">
+                      <input
+                        type="checkbox"
+                        checked={selectedUfs.includes(opt)}
+                        onChange={(e) => {
+                          setSelectedUfs((prev) =>
+                            e.target.checked ? [...prev, opt] : prev.filter((u) => u !== opt)
+                          );
+                        }}
+                      />
+                      <span className="uf-option-code">{opt}</span>
+                      <span className="uf-option-name">{UF_NAMES[opt] ?? opt}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <label className="range-block">
@@ -774,7 +817,7 @@ export default function PlannerApp() {
 
         <div className="status-chip">
           <span className="status-dot" />
-          {uf && plottedCount > 0
+          {selectedUfs.length > 0 && plottedCount > 0
             ? `${plottedCount} de ${polos.length} plotados`
             : status}
         </div>
@@ -806,14 +849,14 @@ export default function PlannerApp() {
           </div>
 
           <div className="polo-list">
-            {!uf && (
+            {!selectedUfs.length && (
               <div className="empty-card" style={{ flex: 1 }}>
                 <div className="empty-icon"><MapPin size={20} /></div>
                 <h2>Nenhum estado</h2>
                 <p>Selecione uma UF no topo para ver os polos.</p>
               </div>
             )}
-            {uf && visiblePolos.length === 0 && (
+            {selectedUfs.length > 0 && visiblePolos.length === 0 && (
               <div className="empty-card compact-card">Nenhum polo encontrado.</div>
             )}
             {visiblePolos.map((polo) => {
@@ -828,6 +871,7 @@ export default function PlannerApp() {
                 >
                   <span className="polo-title">{polo.name}</span>
                   <span className="polo-meta">
+                    {selectedUfs.length > 1 && <span className="uf-tag" style={{ marginRight: 4 }}>{polo.uf}</span>}
                     {polo.city}{polo.neighborhood ? ` · ${polo.neighborhood}` : ""}
                   </span>
                   {(isHost || isGuest) && (
@@ -844,9 +888,9 @@ export default function PlannerApp() {
 
         {/* Mapa */}
         <section className="map-panel">
-          {uf ? (
+          {selectedUfs.length > 0 ? (
             <PlannerMap
-              key={`${uf}-${tab}-${hostId ?? "no-host"}-${trip.activeDayIndex}`}
+              key={`${selectedUfs.join("-")}-${tab}-${hostId ?? "no-host"}-${trip.activeDayIndex}`}
               activeTab={tab}
               activeTripDayIndex={trip.activeDayIndex}
               coordsByPoloId={coords}
@@ -1526,7 +1570,7 @@ export default function PlannerApp() {
                                   })),
                                 })),
                               });
-                              if (savedTrip.days[0]?.stops[0]?.polo.uf) setUf(savedTrip.days[0].stops[0].polo.uf);
+                              if (savedTrip.days[0]?.stops[0]?.polo.uf) setSelectedUfs([savedTrip.days[0].stops[0].polo.uf]);
                             }}
                           >
                             Carregar
