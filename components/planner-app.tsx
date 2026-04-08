@@ -367,12 +367,14 @@ export default function PlannerApp() {
   const encounteredPoloIds = useMemo(
     () =>
       new Set(
-        encounters.flatMap((encounter) => [
-          encounter.hostPolo.id,
-          ...encounter.participants.map((participant) => participant.polo.id),
-        ]),
+        encounters
+          .filter((encounter) => encounter.id !== editingEncounterId)
+          .flatMap((encounter) => [
+            encounter.hostPolo.id,
+            ...encounter.participants.map((participant) => participant.polo.id),
+          ]),
       ),
-    [encounters],
+    [encounters, editingEncounterId],
   );
   const visiblePolos = polos.filter((polo) => {
     const q = search.trim().toLowerCase();
