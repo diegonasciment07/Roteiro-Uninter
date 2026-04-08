@@ -567,13 +567,17 @@ export default function PlannerApp() {
     if (tab === "trip") {
       setTrip((current) => {
         const day = current.days[current.activeDayIndex];
-        if (!day || day.stops.some((stop) => stop.poloId === polo.id)) return current;
+        if (!day) return current;
+        const alreadyIn = day.stops.some((stop) => stop.poloId === polo.id);
         return {
           ...current,
           days: current.days.map((currentDay, index) =>
-            index === current.activeDayIndex
-              ? { ...currentDay, stops: [...currentDay.stops, createTripStop(polo.id)] }
-              : currentDay,
+            index !== current.activeDayIndex ? currentDay : {
+              ...currentDay,
+              stops: alreadyIn
+                ? currentDay.stops.filter((stop) => stop.poloId !== polo.id)
+                : [...currentDay.stops, createTripStop(polo.id)],
+            },
           ),
         };
       });
