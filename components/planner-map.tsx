@@ -4,7 +4,7 @@ import "leaflet/dist/leaflet.css";
 
 import { Circle, MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap } from "react-leaflet";
 import { divIcon, latLngBounds } from "leaflet";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import type { Coordinates, PoloRecord, TripRouteSegment } from "@/lib/types";
 
@@ -61,25 +61,44 @@ function ScrollWheelControl() {
 function MapViewport({
   focusCoords,
   hostCoords,
+  hostPoloId,
   activeTab,
   radiusKm,
 }: {
   focusCoords: Coordinates[];
   hostCoords: Coordinates | null;
+  hostPoloId: string | null;
   activeTab: "enc" | "rot" | "trip";
   radiusKm: number;
 }) {
   const map = useMap();
+  const prevHostPoloId = useRef<string | null | undefined>(undefined);
+  const prevActiveTab = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       map.invalidateSize(false);
     }, 0);
 
-    if (activeTab === "enc" && focusCoords.length > 1) {
-      map.fitBounds(latLngBounds(focusCoords), { padding: [40, 40], maxZoom: 11 });
+    const hostChanged = hostPoloId !== prevHostPoloId.current;
+    const tabChanged = activeTab !== prevActiveTab.current;
+    prevHostPoloId.current = hostPoloId;
+    prevActiveTab.current = activeTab;
+
+    // Na aba enc: só refita quando o anfitrião mudar, não quando o raio mudar
+    if (activeTab === "enc") {
+      if (hostChanged && focusCoords.length > 0) {
+        if (focusCoords.length > 1) {
+          map.fitBounds(latLngBounds(focusCoords), { padding: [40, 40], maxZoom: 11 });
+        } else {
+          map.setView(focusCoords[0], 12, { animate: false });
+        }
+      }
       return () => window.clearTimeout(timeoutId);
     }
+
+    // Nas outras abas: refita quando a aba mudar ou focusCoords mudar
+    if (!tabChanged) return () => window.clearTimeout(timeoutId);
 
     if (focusCoords.length > 1) {
       map.fitBounds(latLngBounds(focusCoords), { padding: [34, 34], maxZoom: 11 });
@@ -93,7 +112,7 @@ function MapViewport({
 
     map.setView(BRAZIL_CENTER, 4, { animate: false });
     return () => window.clearTimeout(timeoutId);
-  }, [activeTab, focusCoords, hostCoords, map]);
+  }, [activeTab, focusCoords, hostPoloId, map]);
 
   useEffect(() => {
     let frame = 0;
@@ -213,6 +232,7 @@ export default function PlannerMap({
         activeTab={activeTab}
         focusCoords={focusCoords}
         hostCoords={hostCoords}
+        hostPoloId={hostPoloId}
         radiusKm={radiusKm}
       />
 
