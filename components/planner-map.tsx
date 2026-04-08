@@ -13,6 +13,7 @@ interface PlannerMapProps {
   coordsByPoloId: Record<string, Coordinates>;
   hostPoloId: string | null;
   guestPoloIds: string[];
+  encounteredPoloIds: string[];
   selectedEncounterPoloIds: string[];
   tripPoloIds: string[];
   tripRouteSegments: TripRouteSegment[];
@@ -143,6 +144,7 @@ export default function PlannerMap({
   coordsByPoloId,
   hostPoloId,
   guestPoloIds,
+  encounteredPoloIds,
   selectedEncounterPoloIds,
   tripPoloIds,
   tripRouteSegments,
@@ -153,6 +155,7 @@ export default function PlannerMap({
 }: PlannerMapProps) {
   const guestSet = new Set(guestPoloIds);
   const tripSet = new Set(tripPoloIds);
+  const encounteredSet = new Set(encounteredPoloIds);
   const hostCoords = hostPoloId ? coordsByPoloId[hostPoloId] ?? null : null;
 
   const plotted = useMemo(
@@ -185,25 +188,15 @@ export default function PlannerMap({
 
   function iconForPolo(polo: PoloRecord) {
     if (activeTab === "trip") {
-      if (tripSet.has(polo.id)) {
-        return makeMarkerIcon("#58a6ff", 32);
-      }
-
+      if (tripSet.has(polo.id)) return makeMarkerIcon("#58a6ff", 32);
+      if (encounteredSet.has(polo.id)) return makeMarkerIcon("#ef4444", 27);
       return makeMarkerIcon("#4b5563", 28);
     }
 
-    if (hostPoloId === polo.id) {
-      return makeMarkerIcon("#ffb703", 34);
-    }
-
-    if (guestSet.has(polo.id)) {
-      return makeMarkerIcon("#22c55e", 30);
-    }
-
-    if (hostPoloId) {
-      return makeMarkerIcon("#4b5563", 28);
-    }
-
+    if (hostPoloId === polo.id) return makeMarkerIcon("#ffb703", 34);
+    if (guestSet.has(polo.id)) return makeMarkerIcon("#22c55e", 30);
+    if (encounteredSet.has(polo.id)) return makeMarkerIcon("#ef4444", 27);
+    if (hostPoloId) return makeMarkerIcon("#4b5563", 28);
     return makeMarkerIcon("#8ec5ff", 29);
   }
 
@@ -226,14 +219,24 @@ export default function PlannerMap({
       {activeTab === "trip" &&
         tripRouteSegments.map((segment) => {
           const isActiveDay = segment.dayIndex === activeTripDayIndex;
+          // Rotas reais: azul sólido / laranja sólido em transições
+          // Linha reta (aguardando ou sem dados): cinza tracejado
+          const isStraight = !segment.routed;
+          const baseColor = segment.transition ? "#f5b800" : "#1565e8";
+          const color = isStraight ? "#6b7280" : baseColor;
+          const dashArray = isStraight
+            ? "4 8"
+            : segment.transition
+              ? "3 10"
+              : undefined;
           return (
             <Polyline
               key={segment.id}
-              positions={[segment.from, segment.to]}
+              positions={segment.path}
               pathOptions={{
-                color: segment.transition ? "#f5b800" : "#1565e8",
-                dashArray: segment.transition ? "3 10" : "7 10",
-                opacity: isActiveDay ? 0.95 : 0.45,
+                color,
+                dashArray,
+                opacity: isStraight ? (isActiveDay ? 0.55 : 0.3) : (isActiveDay ? 0.95 : 0.45),
                 weight: isActiveDay ? 4 : 2.5,
                 lineCap: "round",
               }}
@@ -244,6 +247,12 @@ export default function PlannerMap({
                 {segment.fromLabel} → {segment.toLabel}
                 <br />
                 ~{segment.km} km · ~{segment.minutes} min
+                <br />
+                {segment.loading
+                  ? "Calculando rota viária…"
+                  : segment.routed
+                    ? "Rota viária real"
+                    : "Linha reta (sem dados viários)"}
               </Tooltip>
             </Polyline>
           );

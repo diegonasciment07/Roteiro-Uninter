@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   CalendarDays,
@@ -33,10 +33,12 @@ import {
 
 import { buildAdminTokenHeaders, readStoredAdminToken } from "@/lib/admin-token";
 import { clearGeoCache, geocodePoloAddress, getGeoCache, setGeoCache } from "@/lib/geocode";
+import { buildRoadRouteKey, fetchRoadRoute } from "@/lib/road-route";
 import type {
   Coordinates,
   EncounterRecord,
   PoloRecord,
+  RoadRouteLeg,
   TripDraft,
   TripRecord,
   TripRouteSegment,
@@ -149,6 +151,8 @@ export default function PlannerApp() {
   const [encounters, setEncounters] = useState<EncounterRecord[]>([]);
   const [trips, setTrips] = useState<TripRecord[]>([]);
   const [trip, setTrip] = useState<TripDraft>(createTrip());
+  const [roadLegs, setRoadLegs] = useState<Record<string, RoadRouteLeg | null>>({});
+  const roadLegsInFlight = useRef(new Set<string>());
 
   useEffect(() => {
     void Promise.all([loadUfs(), loadEncounters(), loadTrips()]);
@@ -333,6 +337,17 @@ export default function PlannerApp() {
     const override = guestOverrides[polo.id];
     return override === true || (override !== false && autoSelected);
   });
+
+  const encounteredPoloIds = useMemo(
+    () =>
+      new Set(
+        encounters.flatMap((encounter) => [
+          encounter.hostPolo.id,
+          ...encounter.participants.map((participant) => participant.polo.id),
+        ]),
+      ),
+    [encounters],
+  );
   const visiblePolos = polos.filter((polo) => {
     const q = search.trim().toLowerCase();
     return !q || polo.name.toLowerCase().includes(q) || polo.city.toLowerCase().includes(q);
@@ -346,12 +361,93 @@ export default function PlannerApp() {
     trips.flatMap((savedTrip) => savedTrip.days.flatMap((day) => day.stops.map((stop) => stop.polo))).find((polo) => polo.id === id) ??
     null;
 
+  const tripRouteRequests = useMemo(() => {
+    const requests: Array<{ key: string; from: Coordinates; to: Coordinates }> = [];
+    const seenKeys = new Set<string>();
+
+    trip.days.forEach((day, dayIndex) => {
+      day.stops.forEach((stop, stopIndex) => {
+        const previous =
+          stopIndex > 0 ? day.stops[stopIndex - 1] : dayIndex > 0 ? trip.days[dayIndex - 1].stops.at(-1) : undefined;
+        if (!previous) return;
+
+        const from = coords[previous.poloId];
+        const to = coords[stop.poloId];
+        if (!from || !to) return;
+
+        const key = buildRoadRouteKey(from, to);
+        if (seenKeys.has(key)) return;
+
+        seenKeys.add(key);
+        requests.push({ key, from, to });
+      });
+    });
+
+    return requests;
+  }, [coords, trip.days]);
+
+  useEffect(() => {
+    const validKeys = new Set(tripRouteRequests.map((request) => request.key));
+
+    setRoadLegs((current) => {
+      const nextEntries = Object.entries(current).filter(([key]) => validKeys.has(key));
+      if (nextEntries.length === Object.keys(current).length) return current;
+      return Object.fromEntries(nextEntries);
+    });
+
+    for (const key of [...roadLegsInFlight.current]) {
+      if (!validKeys.has(key)) roadLegsInFlight.current.delete(key);
+    }
+  }, [tripRouteRequests]);
+
+  useEffect(() => {
+    const missingRequests = tripRouteRequests.filter(
+      (request) => roadLegs[request.key] === undefined && !roadLegsInFlight.current.has(request.key),
+    );
+    if (!missingRequests.length) return;
+
+    let cancelled = false;
+
+    void (async () => {
+      for (const request of missingRequests) {
+        if (cancelled) break;
+
+        roadLegsInFlight.current.add(request.key);
+        const result = await fetchRoadRoute(request.from, request.to);
+        roadLegsInFlight.current.delete(request.key);
+
+        if (cancelled) break;
+
+        setRoadLegs((current) => (
+          current[request.key] === undefined
+            ? { ...current, [request.key]: result }
+            : current
+        ));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [roadLegs, tripRouteRequests]);
+
   const estimateLeg = (fromId: string, toId: string) => {
     const a = coords[fromId];
     const b = coords[toId];
     if (!a || !b) return null;
+
+    const routedLeg = roadLegs[buildRoadRouteKey(a, b)];
+    if (routedLeg) {
+      return { ...routedLeg, routed: true };
+    }
+
     const km = Math.max(1, Math.round(haversine(a, b) * 1.35));
-    return { km, minutes: Math.max(5, Math.round((km / 70) * 60)) };
+    return {
+      path: [a, b],
+      km,
+      minutes: Math.max(5, Math.round((km / 70) * 60)),
+      routed: false,
+    };
   };
 
   const tripKm = trip.days.reduce((sum, day, dayIndex) => {
@@ -376,6 +472,9 @@ export default function PlannerApp() {
 
       if (!from || !to || !leg || !fromPolo || !toPolo) return;
 
+      const routeKey = buildRoadRouteKey(from, to);
+      const isLoading = roadLegs[routeKey] === undefined;
+
       segments.push({
         id: `${previous.id}-${stop.id}`,
         dayIndex,
@@ -385,14 +484,21 @@ export default function PlannerApp() {
         toLabel: toPolo.city,
         from,
         to,
+        path: leg.path,
         km: leg.km,
         minutes: leg.minutes,
+        routed: leg.routed,
+        loading: isLoading,
         transition: stopIndex === 0 && dayIndex > 0,
       });
     });
 
     return segments;
   }, []);
+
+  const routesLoadingCount = tripRouteSegments.filter((s) => s.loading).length;
+  const routesRoutedCount = tripRouteSegments.filter((s) => s.routed).length;
+  const routesFailed = tripRouteSegments.filter((s) => !s.loading && !s.routed).length;
 
   const optimizeTripDay = (dayIndex: number) => {
     setTrip((current) => {
@@ -888,12 +994,21 @@ export default function PlannerApp() {
 
         {/* Mapa */}
         <section className="map-panel">
+          {encounters.length > 0 && tab !== "trip" && (
+            <div className="map-legend">
+              <span className="map-legend-dot" style={{ background: "#8ec5ff" }} />Disponível
+              <span className="map-legend-dot" style={{ background: "#ef4444", marginLeft: 10 }} />Já em encontro
+              {hostId && <><span className="map-legend-dot" style={{ background: "#ffb703", marginLeft: 10 }} />Anfitrião</>}
+              {hostId && <><span className="map-legend-dot" style={{ background: "#22c55e", marginLeft: 10 }} />Convidado</>}
+            </div>
+          )}
           {selectedUfs.length > 0 ? (
             <PlannerMap
               key={`${selectedUfs.join("-")}-${tab}-${hostId ?? "no-host"}-${trip.activeDayIndex}`}
               activeTab={tab}
               activeTripDayIndex={trip.activeDayIndex}
               coordsByPoloId={coords}
+              encounteredPoloIds={[...encounteredPoloIds]}
               guestPoloIds={guests.map((g) => g.id)}
               hostPoloId={hostId}
               onPoloClick={handlePoloClick}
@@ -1171,9 +1286,24 @@ export default function PlannerApp() {
                 </div>
                 <div className="stat-pill">
                   <strong>~{tripKm}</strong>
-                  <span>km est.</span>
+                  <span>km {routesRoutedCount > 0 && routesLoadingCount === 0 && routesFailed === 0 ? "viário" : "est."}</span>
                 </div>
               </div>
+
+              {/* Indicador de rotas viárias */}
+              {tripRouteSegments.length > 0 && (
+                <div className={`route-status-banner ${routesLoadingCount > 0 ? "loading" : routesFailed > 0 ? "partial" : "done"}`}>
+                  {routesLoadingCount > 0 ? (
+                    <><span className="route-status-spinner" />Calculando rotas viárias… {routesLoadingCount} trecho{routesLoadingCount !== 1 ? "s" : ""} restante{routesLoadingCount !== 1 ? "s" : ""}</>
+                  ) : routesFailed > 0 && routesRoutedCount > 0 ? (
+                    <><Navigation size={12} />{routesRoutedCount} rota{routesRoutedCount !== 1 ? "s" : ""} real{routesRoutedCount !== 1 ? "is" : ""} · {routesFailed} em linha reta (sem dados viários)</>
+                  ) : routesFailed > 0 ? (
+                    <><Navigation size={12} />Rotas em linha reta — dados viários indisponíveis</>
+                  ) : (
+                    <><Navigation size={12} />{routesRoutedCount} trecho{routesRoutedCount !== 1 ? "s" : ""} com rota viária real</>
+                  )}
+                </div>
+              )}
 
               {/* Info básica */}
               <label className="field-block">

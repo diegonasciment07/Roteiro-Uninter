@@ -75,6 +75,12 @@ export interface TripRecord {
   days: TripDayRecord[];
 }
 
+export interface RoadRouteLeg {
+  path: Coordinates[];
+  km: number;
+  minutes: number;
+}
+
 export interface TripRouteSegment {
   id: string;
   dayIndex: number;
@@ -84,8 +90,11 @@ export interface TripRouteSegment {
   toLabel: string;
   from: Coordinates;
   to: Coordinates;
+  path: Coordinates[];
   km: number;
   minutes: number;
+  routed: boolean;
+  loading: boolean;
   transition: boolean;
 }
 
