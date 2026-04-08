@@ -568,15 +568,12 @@ export default function PlannerApp() {
       setTrip((current) => {
         const day = current.days[current.activeDayIndex];
         if (!day) return current;
-        const alreadyIn = day.stops.some((stop) => stop.poloId === polo.id);
         return {
           ...current,
           days: current.days.map((currentDay, index) =>
             index !== current.activeDayIndex ? currentDay : {
               ...currentDay,
-              stops: alreadyIn
-                ? currentDay.stops.filter((stop) => stop.poloId !== polo.id)
-                : [...currentDay.stops, createTripStop(polo.id)],
+              stops: [...currentDay.stops, createTripStop(polo.id)],
             },
           ),
         };
