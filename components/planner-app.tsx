@@ -17,6 +17,7 @@ import {
   MapPinned,
   Minus,
   Navigation,
+  Pencil,
   Plane,
   PlaneLanding,
   PlaneTakeoff,
@@ -141,6 +142,7 @@ export default function PlannerApp() {
   const [status, setStatus] = useState("Selecione um estado para comecar.");
   const [toast, setToast] = useState<string | null>(null);
   const [savingEncounter, setSavingEncounter] = useState(false);
+  const [editingEncounterId, setEditingEncounterId] = useState<string | null>(null);
   const [savingTrip, setSavingTrip] = useState(false);
   const [hostId, setHostId] = useState<string | null>(null);
   const [guestOverrides, setGuestOverrides] = useState<Record<string, boolean>>({});
@@ -238,6 +240,30 @@ export default function PlannerApp() {
     setGuestCounts({});
     setEncounterDate("");
     setEncounterNotes("");
+    setEditingEncounterId(null);
+  }
+
+  function loadEncounterForEdit(enc: EncounterRecord) {
+    setHostId(enc.hostPolo.id);
+    setHostParticipants(enc.hostParticipants);
+    setEncounterDate(enc.scheduledAt ? enc.scheduledAt.split("T")[0] : "");
+    setEncounterNotes(enc.notes ?? "");
+
+    // Force exact guest list: disable auto-selection, set only saved participants
+    const savedGuestIds = new Set(enc.participants.map((p) => p.polo.id));
+    const overrides: Record<string, boolean> = {};
+    polos.forEach((polo) => {
+      if (polo.id === enc.hostPolo.id) return;
+      overrides[polo.id] = savedGuestIds.has(polo.id);
+    });
+    setGuestOverrides(overrides);
+
+    const counts: Record<string, number> = {};
+    enc.participants.forEach((p) => { counts[p.polo.id] = p.participants; });
+    setGuestCounts(counts);
+
+    setEditingEncounterId(enc.id);
+    setTab("enc");
   }
 
   async function persistCoords(poloId: string, value: Coordinates, precision?: string) {
@@ -573,25 +599,34 @@ export default function PlannerApp() {
     if (!hostId || !selectedUfs.length) return;
     setSavingEncounter(true);
     try {
-      await fetchJson("/api/encontros", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          uf: host?.uf ?? selectedUfs[0] ?? "",
-          hostPoloId: hostId,
-          hostParticipants,
-          scheduledAt: encounterDate || null,
-          notes: encounterNotes || null,
-          participants: guests.map((guest) => ({
-            poloId: guest.id,
-            participants: guestCounts[guest.id] ?? 0,
-          })),
-        }),
-      });
+      const payload = {
+        uf: host?.uf ?? selectedUfs[0] ?? "",
+        hostPoloId: hostId,
+        hostParticipants,
+        scheduledAt: encounterDate || null,
+        notes: encounterNotes || null,
+        participants: guests.map((guest) => ({
+          poloId: guest.id,
+          participants: guestCounts[guest.id] ?? 0,
+        })),
+      };
+      if (editingEncounterId) {
+        await fetchJson(`/api/encontros/${editingEncounterId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await fetchJson("/api/encontros", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
       await loadEncounters();
       clearEncounter();
       setTab("rot");
-      setToast("Encontro salvo com sucesso.");
+      setToast(editingEncounterId ? "Encontro atualizado com sucesso." : "Encontro salvo com sucesso.");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "Falha ao salvar o encontro.");
     } finally {
@@ -1067,10 +1102,17 @@ export default function PlannerApp() {
           {/* Tab: Encontro */}
           {tab === "enc" && (
             <div className="panel-scroll">
-              <div className="day-banner">
-                <CalendarDays size={13} style={{ display: "inline", marginRight: 6 }} />
-                Encontro é um <strong>evento em um polo anfitrião</strong>, com polos convidados dentro do raio selecionado.
-              </div>
+              {editingEncounterId ? (
+                <div className="day-banner" style={{ background: "rgba(245,184,0,0.10)", borderColor: "rgba(245,184,0,0.30)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span><Pencil size={13} style={{ display: "inline", marginRight: 6 }} />Editando encontro salvo. Salve para atualizar.</span>
+                  <button className="btn btn-ghost" style={{ fontSize: "0.72rem", padding: "2px 8px" }} type="button" onClick={clearEncounter}>Cancelar</button>
+                </div>
+              ) : (
+                <div className="day-banner">
+                  <CalendarDays size={13} style={{ display: "inline", marginRight: 6 }} />
+                  Encontro é um <strong>evento em um polo anfitrião</strong>, com polos convidados dentro do raio selecionado.
+                </div>
+              )}
               {!host ? (
                 <div className="empty-card">
                   <div className="empty-icon"><MapPin size={20} /></div>
@@ -1191,7 +1233,9 @@ export default function PlannerApp() {
                   >
                     {savingEncounter
                       ? "Salvando…"
-                      : <><Save size={15} /> Salvar encontro</>}
+                      : editingEncounterId
+                        ? <><Save size={15} /> Atualizar encontro</>
+                        : <><Save size={15} /> Salvar encontro</>}
                   </button>
                 </>
               )}
@@ -1231,18 +1275,28 @@ export default function PlannerApp() {
                           {formatDate(enc.scheduledAt)}
                         </p>
                       </div>
-                      <button
-                        className="btn btn-icon btn-danger"
-                        type="button"
-                        title="Excluir encontro"
-                        onClick={async () => {
-                          await fetchJson(`/api/encontros/${enc.id}`, { method: "DELETE" });
-                          await loadEncounters();
-                          setToast("Encontro removido.");
-                        }}
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          className="btn btn-icon btn-secondary"
+                          type="button"
+                          title="Editar encontro"
+                          onClick={() => loadEncounterForEdit(enc)}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          className="btn btn-icon btn-danger"
+                          type="button"
+                          title="Excluir encontro"
+                          onClick={async () => {
+                            await fetchJson(`/api/encontros/${enc.id}`, { method: "DELETE" });
+                            await loadEncounters();
+                            setToast("Encontro removido.");
+                          }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </div>
                     <div className="record-body">
                       <p style={{ fontSize: "0.82rem" }}>
