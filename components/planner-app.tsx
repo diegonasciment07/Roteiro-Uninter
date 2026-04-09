@@ -35,6 +35,7 @@ import {
 import { buildAdminTokenHeaders, readStoredAdminToken } from "@/lib/admin-token";
 import { clearGeoCache, geocodePoloAddress, getGeoCache, setGeoCache } from "@/lib/geocode";
 import { buildRoadRouteKey, fetchRoadRoute } from "@/lib/road-route";
+import { fetchTravelTimes } from "@/lib/travel-time";
 import type {
   Coordinates,
   EncounterRecord,
@@ -138,6 +139,10 @@ export default function PlannerApp() {
   const [coords, setCoords] = useState<Record<string, Coordinates>>({});
   const [search, setSearch] = useState("");
   const [radiusKm, setRadiusKm] = useState(100);
+  const [selectionMode, setSelectionMode] = useState<"radius" | "time">("radius");
+  const [travelMinutes, setTravelMinutes] = useState(120); // 2h default
+  const [travelTimes, setTravelTimes] = useState<Record<string, number | null>>({});
+  const [loadingTravelTimes, setLoadingTravelTimes] = useState(false);
   const [tab, setTab] = useState<"enc" | "rot" | "trip">("enc");
   const [status, setStatus] = useState("Selecione um estado para comecar.");
   const [toast, setToast] = useState<string | null>(null);
@@ -351,9 +356,41 @@ export default function PlannerApp() {
     };
   }, [host, polos.length, tab]);
 
+  // Buscar tempos de deslocamento via OSRM quando modo = "time" e host mudar
+  useEffect(() => {
+    if (selectionMode !== "time" || !host || !hostCoords) {
+      setTravelTimes({});
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingTravelTimes(true);
+
+    void (async () => {
+      const targets = polos.filter((p) => p.id !== host.id && coords[p.id]);
+      const destCoords = targets.map((p) => coords[p.id]);
+      const times = await fetchTravelTimes(hostCoords, destCoords);
+
+      if (cancelled) return;
+
+      const map: Record<string, number | null> = {};
+      targets.forEach((p, i) => { map[p.id] = times[i]; });
+      setTravelTimes(map);
+      setLoadingTravelTimes(false);
+    })();
+
+    return () => { cancelled = true; };
+  }, [host?.id, selectionMode, polos.length]);
+
   const autoGuests = polos.filter((polo) => {
     if (!host || polo.id === host.id) return false;
     if (normalizeCityKey(polo.city) === normalizeCityKey(host.city)) return true;
+
+    if (selectionMode === "time") {
+      const minutes = travelTimes[polo.id];
+      return minutes != null && minutes <= travelMinutes;
+    }
+
     const targetCoords = coords[polo.id];
     return Boolean(hostCoords && targetCoords && haversine(hostCoords, targetCoords) <= radiusKm);
   });
@@ -905,15 +942,46 @@ export default function PlannerApp() {
             )}
           </div>
 
-          <label className="range-block">
-            <CircleDot size={14} color="var(--muted)" />
-            <span className="range-label">Raio</span>
-            <input
-              type="range" min={20} max={400} value={radiusKm}
-              onChange={(e) => setRadiusKm(Number(e.target.value))}
-            />
-            <span className="range-value">{radiusKm} km</span>
-          </label>
+          <div className="selection-mode-block">
+            <button
+              className={`selection-mode-btn${selectionMode === "radius" ? " active" : ""}`}
+              type="button"
+              onClick={() => setSelectionMode("radius")}
+            >
+              <CircleDot size={13} /> Raio
+            </button>
+            <button
+              className={`selection-mode-btn${selectionMode === "time" ? " active" : ""}`}
+              type="button"
+              onClick={() => setSelectionMode("time")}
+            >
+              <Clock size={13} /> Tempo
+            </button>
+          </div>
+
+          {selectionMode === "radius" ? (
+            <label className="range-block">
+              <input
+                type="range" min={20} max={400} value={radiusKm}
+                onChange={(e) => setRadiusKm(Number(e.target.value))}
+              />
+              <span className="range-value">{radiusKm} km</span>
+            </label>
+          ) : (
+            <div className="time-buttons">
+              {[60, 120, 180, 240, 300].map((min) => (
+                <button
+                  key={min}
+                  type="button"
+                  className={`time-btn${travelMinutes === min ? " active" : ""}`}
+                  onClick={() => setTravelMinutes(min)}
+                >
+                  {min / 60}h
+                </button>
+              ))}
+              {loadingTravelTimes && <span className="time-loading"><span className="route-status-spinner" style={{ borderTopColor: "var(--muted)" }} /></span>}
+            </div>
+          )}
         </div>
 
         <div className="toolbar-actions">
@@ -1052,6 +1120,7 @@ export default function PlannerApp() {
               onPoloClick={handlePoloClick}
               polos={polos}
               radiusKm={radiusKm}
+              showRadiusCircle={selectionMode === "radius"}
               selectedEncounterPoloIds={host ? [host.id, ...guests.map((g) => g.id)] : []}
               tripPoloIds={tripIds}
               tripRouteSegments={tripRouteSegments}

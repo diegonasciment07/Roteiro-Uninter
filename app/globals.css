@@ -260,6 +260,51 @@ button, input, textarea, select { font: inherit; outline: none; }
 .range-label { color: var(--muted); font-size: 0.82rem; }
 .range-value { color: var(--gold); font-weight: 700; font-size: 0.88rem; min-width: 54px; }
 
+/* ─── Selection mode toggle (Raio / Tempo) ───────────────────── */
+.selection-mode-block {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: rgba(7, 13, 26, 0.50);
+}
+.selection-mode-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 14px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease);
+  white-space: nowrap;
+}
+.selection-mode-btn:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+.selection-mode-btn.active { background: var(--brand); color: #fff; }
+
+/* ─── Time buttons (1h–5h) ───────────────────────────────────── */
+.time-buttons {
+  display: flex; align-items: center; gap: 4px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(7, 13, 26, 0.50);
+}
+.time-btn {
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease);
+}
+.time-btn:hover { color: var(--text); border-color: var(--border-2); }
+.time-btn.active { background: var(--gold); color: #0a0f1e; border-color: transparent; }
+.time-loading { display: flex; align-items: center; padding: 0 4px; }
+
 .status-chip {
   display: flex; align-items: center; gap: 8px;
   padding: 9px 14px;

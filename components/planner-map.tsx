@@ -20,6 +20,7 @@ interface PlannerMapProps {
   activeTripDayIndex: number;
   activeTab: "enc" | "rot" | "trip";
   radiusKm: number;
+  showRadiusCircle: boolean;
   onPoloClick: (polo: PoloRecord) => void;
 }
 
@@ -64,12 +65,14 @@ function MapViewport({
   hostPoloId,
   activeTab,
   radiusKm,
+  showRadiusCircle,
 }: {
   focusCoords: Coordinates[];
   hostCoords: Coordinates | null;
   hostPoloId: string | null;
   activeTab: "enc" | "rot" | "trip";
   radiusKm: number;
+  showRadiusCircle: boolean;
 }) {
   const map = useMap();
   const prevHostPoloId = useRef<string | null | undefined>(undefined);
@@ -140,7 +143,7 @@ function MapViewport({
     };
   }, [map]);
 
-  if (!hostCoords || activeTab !== "enc") {
+  if (!hostCoords || activeTab !== "enc" || !showRadiusCircle) {
     return null;
   }
 
@@ -170,6 +173,7 @@ export default function PlannerMap({
   activeTripDayIndex,
   activeTab,
   radiusKm,
+  showRadiusCircle,
   onPoloClick,
 }: PlannerMapProps) {
   const guestSet = new Set(guestPoloIds);
@@ -234,6 +238,7 @@ export default function PlannerMap({
         hostCoords={hostCoords}
         hostPoloId={hostPoloId}
         radiusKm={radiusKm}
+        showRadiusCircle={showRadiusCircle}
       />
 
       {activeTab === "trip" &&
