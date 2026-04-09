@@ -2,9 +2,11 @@
 
 import "leaflet/dist/leaflet.css";
 
-import { Circle, MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap } from "react-leaflet";
+import { Circle, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMap } from "react-leaflet";
 import { divIcon, latLngBounds } from "leaflet";
 import { useEffect, useMemo, useRef } from "react";
+import concave from "@turf/concave";
+import { featureCollection, point } from "@turf/helpers";
 
 import type { Coordinates, PoloRecord, TripRouteSegment } from "@/lib/types";
 
@@ -21,6 +23,7 @@ interface PlannerMapProps {
   activeTab: "enc" | "rot" | "trip";
   radiusKm: number;
   showRadiusCircle: boolean;
+  isochronePoloCoords: Coordinates[];
   onPoloClick: (polo: PoloRecord) => void;
 }
 
@@ -174,6 +177,7 @@ export default function PlannerMap({
   activeTab,
   radiusKm,
   showRadiusCircle,
+  isochronePoloCoords,
   onPoloClick,
 }: PlannerMapProps) {
   const guestSet = new Set(guestPoloIds);
@@ -240,6 +244,32 @@ export default function PlannerMap({
         radiusKm={radiusKm}
         showRadiusCircle={showRadiusCircle}
       />
+
+      {activeTab === "enc" && isochronePoloCoords.length >= 3 && (() => {
+        try {
+          const pts = featureCollection(
+            isochronePoloCoords.map(([lat, lon]) => point([lon, lat]))
+          );
+          const hull = concave(pts, { maxEdge: 8 });
+          if (!hull) return null;
+          const coords = hull.geometry.coordinates[0] as [number, number][];
+          const positions: Coordinates[] = coords.map(([lon, lat]) => [lat, lon]);
+          return (
+            <Polygon
+              positions={positions}
+              pathOptions={{
+                color: "#0e5bd8",
+                fillColor: "#0e5bd8",
+                fillOpacity: 0.07,
+                dashArray: "6 4",
+                weight: 2,
+              }}
+            />
+          );
+        } catch {
+          return null;
+        }
+      })()}
 
       {activeTab === "trip" &&
         tripRouteSegments.map((segment) => {

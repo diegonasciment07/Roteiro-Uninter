@@ -1121,6 +1121,14 @@ export default function PlannerApp() {
               polos={polos}
               radiusKm={radiusKm}
               showRadiusCircle={selectionMode === "radius"}
+              isochronePoloCoords={
+                selectionMode === "time" && host && !loadingTravelTimes
+                  ? [
+                      ...(hostCoords ? [hostCoords] : []),
+                      ...guests.map((g) => coords[g.id]).filter(Boolean) as Coordinates[],
+                    ]
+                  : []
+              }
               selectedEncounterPoloIds={host ? [host.id, ...guests.map((g) => g.id)] : []}
               tripPoloIds={tripIds}
               tripRouteSegments={tripRouteSegments}

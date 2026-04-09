@@ -17,6 +17,8 @@
   "license": "ISC",
   "dependencies": {
     "@prisma/client": "^6.19.2",
+    "@turf/concave": "^7.3.4",
+    "@turf/helpers": "^7.3.4",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.7.0",
     "next": "^16.2.1",
