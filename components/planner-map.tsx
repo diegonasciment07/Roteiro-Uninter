@@ -288,7 +288,10 @@ export default function PlannerMap({
           }}
         >
           <Tooltip direction="top" offset={[0, -20]}>
-            {polo.name}
+            <strong>{polo.name}</strong>
+            {polo.cityPopulation != null && (
+              <><br />{polo.cityPopulation.toLocaleString("pt-BR")} hab.</>
+            )}
           </Tooltip>
         </Marker>
       ))}

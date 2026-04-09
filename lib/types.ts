@@ -16,6 +16,7 @@ export interface PoloRecord {
   latitude: number | null;
   longitude: number | null;
   geocodePrecision: string | null;
+  cityPopulation: number | null;
   createdAt?: string;
   updatedAt?: string;
 }
